@@ -1,0 +1,1596 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>แหวนพลอยแถว · 3D Preview (spike)</title>
+<style>
+  :root{
+    --ground:#F7F5F2; --panel:#FFFFFF; --ink:#1D1B19; --ink-soft:#6B6560;
+    --line:#E7E3DD; --line-2:#EFEBE5; --accent:#A2191D; --accent-soft:#C7514F;
+    --stage-1:#EEEAE4; --stage-2:#DAD4CB;
+    --serif:Georgia,"Times New Roman",serif;
+    --sans:-apple-system,"Segoe UI",system-ui,"Noto Sans Thai",Arial,sans-serif;
+    --mono:"SF Mono",ui-monospace,Menlo,Consolas,monospace;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{
+      --ground:#151618; --panel:#1C1E21; --ink:#ECE9E4; --ink-soft:#9B948C;
+      --line:#2A2D31; --line-2:#23262A; --accent:#E4746F; --accent-soft:#B84A46;
+      --stage-1:#202327; --stage-2:#14161A;
+    }
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{background:var(--ground);color:var(--ink);font-family:var(--sans);-webkit-font-smoothing:antialiased;line-height:1.55}
+  .wrap{max-width:1160px;margin:0 auto;padding:26px 20px 30px}
+  .topbar{display:flex;align-items:baseline;justify-content:space-between;gap:16px;flex-wrap:wrap;
+    padding-bottom:16px;border-bottom:1px solid var(--line)}
+  .brand{display:flex;align-items:center;gap:10px}
+  .brand .mk{font-family:var(--serif);font-size:20px;font-weight:700;letter-spacing:.01em}
+  .brand .mk b{color:var(--accent)}
+  .brand .tag{font-size:9.5px;letter-spacing:.34em;text-transform:uppercase;color:var(--ink-soft)}
+  .coll{font-size:10.5px;letter-spacing:.28em;text-transform:uppercase;color:var(--ink-soft)}
+
+  .grid{display:grid;grid-template-columns:360px 1fr;gap:22px;margin-top:22px;align-items:start}
+  @media (max-width:860px){.grid{grid-template-columns:1fr}}
+  /* 12 พ.ย. เจ้าของ: ลูกค้าเห็นแค่ เลือกแบบ + เลือกพลอย — ค่า spec/generator/หมายเหตุทีม ซ่อน เปิดดูด้วย #dev ต่อท้ายลิงก์ */
+  body:not(.dev) .devonly{display:none !important}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:22px 20px}
+  .eyebrow{font-size:10.5px;letter-spacing:.26em;text-transform:uppercase;color:var(--accent);font-weight:700;margin:0 0 8px}
+  h1{font-family:var(--serif);font-size:27px;line-height:1.1;margin:0 0 6px;font-weight:700}
+  h1 small{font-size:15px;font-weight:400;color:var(--ink-soft)}
+  .lede{color:var(--ink-soft);font-size:13px;margin:0 0 16px}
+
+  .grp{margin-top:16px}
+  .lbl{font-size:11px;letter-spacing:.08em;color:var(--ink-soft);margin-bottom:8px;display:flex;justify-content:space-between;gap:8px}
+  .lbl i{font-style:normal;color:var(--accent)}
+  .seg{display:flex;gap:6px;flex-wrap:wrap}
+  .seg button{font-family:var(--sans);font-size:12.5px;font-weight:600;border:1px solid var(--line);
+    background:var(--panel);color:var(--ink);padding:8px 13px;border-radius:20px;cursor:pointer}
+  .seg button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:#fff}
+  .seg button:focus-visible,.sw button:focus-visible,.btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+  .prow{display:grid;grid-template-columns:96px 1fr;align-items:center;gap:6px 8px;padding:7px 0;border-bottom:1px solid var(--line-2)}
+  .prow:last-child{border-bottom:0}
+  .pn{font-size:12px;color:var(--ink)}
+  .pn span{color:var(--ink-soft);font-size:10.5px}
+  .sw{display:flex;gap:7px;flex-wrap:wrap}
+  .sw button{width:28px;height:28px;border-radius:50%;border:2px solid var(--line);cursor:pointer;padding:0}
+  .sw button[aria-pressed="true"]{border-color:var(--ink);box-shadow:0 0 0 2px var(--panel) inset}
+  .cn{grid-column:2;font-size:11px;color:var(--ink-soft);margin-top:-2px}
+
+  .spec{border-top:1px solid var(--line-2);margin-top:6px}
+  .spec .row{display:flex;justify-content:space-between;gap:12px;padding:7px 0;border-bottom:1px solid var(--line-2)}
+  .spec .k{font-family:var(--mono);font-size:10.5px;color:var(--ink-soft);white-space:nowrap;padding-top:2px}
+  .spec .v{font-size:12.5px;text-align:right;font-variant-numeric:tabular-nums}
+  .spec .v em{font-style:normal;color:var(--accent);font-size:10.5px}
+  .note{margin-top:14px;padding:11px 13px;background:var(--stage-1);border-radius:10px;font-size:11.5px;line-height:1.6;color:var(--ink-soft)}
+  .note b{color:var(--ink)}
+  .warn{margin-top:8px;font-size:11px;color:var(--accent)}
+  .exp{margin-top:16px;border-top:1px solid var(--line-2);padding-top:12px}
+  .exp summary{cursor:pointer;font-size:11px;letter-spacing:.08em;color:var(--ink-soft)}
+  .exp summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+  .stage{position:relative;border:1px solid var(--line);border-radius:16px;overflow:hidden;
+    background:radial-gradient(120% 90% at 50% 22%,var(--stage-1),var(--stage-2));
+    min-height:520px;aspect-ratio:1/1}
+  /* 12 พ.ย. เจ้าของลองมือถือ: เมนูสีอยู่บน แหวนอยู่ล่างต้องไถไกล → มือถือ: แหวนขึ้นบนสุดและติดจอ (sticky) เมนูเลื่อนอยู่ใต้ */
+  @media (max-width:860px){
+    .stage{aspect-ratio:auto;min-height:0;height:42vh;height:42svh}
+    .stagecol{order:-1;position:sticky;top:0;z-index:5;background:var(--ground);padding:8px 0 10px;margin:0 -4px}
+    .stagecol .foot,.stage .hint,.stage .badge{display:none}
+    .controls{right:10px;bottom:10px}.btn{padding:7px 12px;font-size:12px}
+    .grid{margin-top:12px;gap:12px}
+  }
+  canvas{position:absolute;inset:0;display:block;width:100%;height:100%;touch-action:none;cursor:grab}
+  canvas:active{cursor:grabbing}
+  .badge{position:absolute;left:14px;top:14px;font-size:11px;color:var(--ink-soft);background:var(--panel);
+    border:1px solid var(--line);padding:5px 11px;border-radius:20px;pointer-events:none}
+  .hint{position:absolute;left:16px;bottom:16px;font-size:11px;color:var(--ink-soft);pointer-events:none;user-select:none}
+  .hint b{color:var(--ink);font-weight:600}
+  .controls{position:absolute;right:14px;bottom:14px;display:flex;gap:8px}
+  .btn{font-family:var(--sans);font-size:12.5px;font-weight:600;border:1px solid var(--line);
+    background:var(--panel);color:var(--ink);padding:9px 15px;border-radius:20px;cursor:pointer}
+  .btn:hover{border-color:var(--accent)}
+  .btn[aria-pressed="true"]{border-color:var(--accent);color:var(--accent)}
+  .msg{position:absolute;inset:0;display:none;align-items:center;justify-content:center;padding:40px;text-align:center;
+    color:var(--ink-soft);font-size:14px}
+  .foot{margin-top:14px;font-size:11px;color:var(--ink-soft);text-align:center;line-height:1.6}
+</style>
+</head>
+<body>
+<script>if(/dev/.test(location.hash))document.body.classList.add('dev');addEventListener('hashchange',function(){document.body.classList.toggle('dev',/dev/.test(location.hash));});</script>
+<div class="wrap">
+  <div class="topbar">
+    <div class="brand"><span class="mk">3<b>J</b> Jewelry</span><span class="tag">CAD Studio</span></div>
+    <span class="coll">Ring Builder · row_v1 spike</span>
+  </div>
+
+  <div class="grid">
+    <div class="panel">
+      <p class="eyebrow devonly">Spike · วาดจากรูปจริง</p>
+      <h1 id="ttl">TRINITY RING <small>(Big)</small></h1>
+      <p class="lede" id="lede"></p>
+
+      <div class="grp">
+        <div class="lbl"><span>แบบ</span></div>
+        <div class="seg" id="segModel" role="group" aria-label="แบบแหวน">
+          <button type="button" data-v="trinity" aria-pressed="true">TRINITY (3 เม็ด)</button>
+          <button type="button" data-v="scroll6" aria-pressed="false">ก้นหอย 6 เม็ด</button>
+          <button type="button" data-v="channel4" aria-pressed="false">ฝังล็อค 4 เม็ด</button>
+          <button type="button" data-v="channel6" aria-pressed="false">ฝังล็อค 6 เม็ด</button>
+          <button type="button" data-v="bar7" aria-pressed="false">เตย 7 เม็ด</button>
+          <button type="button" data-v="small7" aria-pressed="false">แถวเล็ก 7 เม็ด</button>
+          <button type="button" data-v="bypass2" aria-pressed="false">ไขว้ 2 เม็ด (ไข่)</button>
+        </div>
+      </div>
+
+      <div class="grp">
+        <div class="lbl"><span>สีพลอยทีละเม็ด (ซ้าย → ขวา)</span><i>สีจำลองบนจอ</i></div>
+        <div id="rows"></div>
+      </div>
+
+      <div class="grp devonly">
+        <div class="lbl"><span>ค่าที่ใช้ในภาพนี้</span><i>ประมาณจากรูป</i></div>
+        <div class="spec" id="spec"></div>
+        <div class="warn" id="warn"></div>
+      </div>
+
+      <details class="exp devonly">
+        <summary>ทดลอง generator</summary>
+        <div class="grp">
+          <div class="lbl"><span>จำนวนเม็ด</span></div>
+          <div class="seg" id="segCount" role="group" aria-label="จำนวนเม็ด">
+            <button type="button" data-v="3" aria-pressed="false">3</button>
+            <button type="button" data-v="4" aria-pressed="false">4</button>
+            <button type="button" data-v="5" aria-pressed="false">5</button>
+            <button type="button" data-v="6" aria-pressed="false">6</button>
+            <button type="button" data-v="7" aria-pressed="false">7</button>
+          </div>
+        </div>
+        <div class="grp">
+          <div class="lbl"><span>แบบการฝัง</span></div>
+          <div class="seg" id="segSet" role="group" aria-label="แบบการฝัง">
+            <button type="button" data-v="prong4" aria-pressed="false">หนามเตย 4 เขี้ยว/เม็ด</button>
+            <button type="button" data-v="shared_prong" aria-pressed="false">หนามเตยร่วม (หัวยก)</button>
+            <button type="button" data-v="shared_bead" aria-pressed="false">เม็ดเล็กฝังเสมอ</button>
+            <button type="button" data-v="channel" aria-pressed="false">ฝังล็อค (ราง)</button>
+            <button type="button" data-v="bar_prong" aria-pressed="false">บาร์ + เตยข้าง</button>
+          </div>
+        </div>
+        <div class="grp">
+          <div class="lbl"><span>ผนังข้างหัว (ใช้กับหนามเตยร่วม)</span></div>
+          <div class="seg" id="segGal" role="group" aria-label="ผนังข้างหัว">
+            <button type="button" data-v="plain" aria-pressed="false">เรียบ</button>
+            <button type="button" data-v="scroll" aria-pressed="false">ลายก้นหอยโปร่ง</button>
+          </div>
+        </div>
+        <div class="grp">
+          <div class="lbl"><span>ไหล่แหวน</span></div>
+          <div class="seg" id="segSh" role="group" aria-label="ไหล่แหวน">
+            <button type="button" data-v="plain" aria-pressed="false">เรียบ</button>
+            <button type="button" data-v="scroll_relief" aria-pressed="false">ลายก้นหอยนูน</button>
+          </div>
+        </div>
+      </details>
+
+      <div class="note devonly"><b>ภาพจำลองจากรูปถ่าย ไม่ใช่ไฟล์ผลิต</b> — ตัวเลขทุกตัวเป็นค่าประมาณจากรูป รอวัดจากชิ้นจริง · โลหะและพลอยเป็นการเรนเดอร์จำลอง ไม่ใช่สีจริงของวัสดุ</div>
+    </div>
+
+    <div class="stagecol">
+      <div class="stage" id="stage">
+        <canvas id="c" aria-label="โมเดลแหวน 3 มิติ ลากเพื่อหมุน"></canvas>
+        <span class="badge">ภาพจำลอง — สีและสัดส่วนโดยประมาณ</span>
+        <div class="hint"><b>ลาก</b> หมุน · <b>สกอลล์</b> ซูม</div>
+        <div class="controls">
+          <button class="btn" id="spin" type="button" aria-pressed="false">หมุนช้า</button>
+          <button class="btn" id="reset" type="button">กลับมุมหน้า</button>
+        </div>
+        <div class="msg" id="msg"></div>
+      </div>
+      <p class="foot">ใช้ภาพนี้เทียบกับรูปแหวนจริงเท่านั้น · ไม่ใช่ข้อมูลสินค้า</p>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+
+/* =====================================================================
+   1) พารามิเตอร์ของ TRINITY (Big) — ทุกค่าด้านล่างอ่านจากรูปถ่ายถือมือ
+      มุมเอียง พื้นหลังเบลอ วัดสัดส่วนจริงไม่ได้ -> ห้ามอ้างเป็นค่าจริง
+      หน่วย มม. ทั้งหมด
+   ===================================================================== */
+var TRINITY = {
+  setting: "prong4",   // ประมาณจากรูป — รอวัดจริง (เห็นชัดว่าหนามเตย 4 เขี้ยวต่อเม็ด ไม่ใช่หนามเตยร่วม)
+  stoneCount: 3,       // ประมาณจากรูป — รอวัดจริง (นับได้ 3 เม็ด)
+  innerDiaMm: 17.2,    // ไซซ์อ้างอิงคงที่ EU 54 -> เส้นผ่านศูนย์กลางใน 17.2 mm (ใช้เท่ากับ satin-flow) ไม่ใช่ไซซ์จริงของชิ้น — รอวัดจริง
+  stoneMm: 4.0,        // ประมาณจากรูป — รอวัดจริง (ช่วงที่เป็นไปได้ราว 3.5-4.5 mm)
+  gapMm: 0.3,          // ประมาณจากรูป — รอวัดจริง (ระยะขอบพลอยถึงขอบพลอยข้างเคียง)
+  bandWidthMm: 3.2,    // ประมาณจากรูป — รอวัดจริง (กว้างตัวเรือนใต้แถวพลอย น้อยกว่าเส้นผ่านศูนย์กลางพลอยเล็กน้อย)
+  bandWidthBackMm: 2.6,// ประมาณจากรูป — รอวัดจริง (กว้างด้านหลังนิ้ว เดาว่าเรียวลงเล็กน้อย ความมั่นใจต่ำ)
+  bandThickMm: 1.5,    // ประมาณจากรูป — รอวัดจริง (หนาตัวเรือน)
+  cornerMm: 0.35,      // ประมาณจากรูป — รอวัดจริง (รัศมีมุมมนหน้าตัดสี่เหลี่ยม)
+  headHeightMm: 2.2,   // ประมาณจากรูป — รอวัดจริง (ขอบเอวพลอยสูงกว่าผิวตัวเรือน)
+  prongMm: 0.6,        // ประมาณจากรูป — รอวัดจริง (เส้นผ่านศูนย์กลางเขี้ยว รูปดูเรียวบางมาก)
+  prongOverMm: 0.3,    // ประมาณจากรูป — รอวัดจริง (ปลายเขี้ยวสูงกว่าขอบเอวพลอย)
+  railMm: 0.5          // ประมาณจากรูป — รอวัดจริง (เส้นผ่านศูนย์กลางราวเชื่อมโคนเขี้ยวข้างละเส้น)
+};
+
+/* =====================================================================
+   1b) พารามิเตอร์ของแบบ "ก้นหอย 6 เม็ด" [ต้องยืนยัน: ชื่อแบบ]
+       อ่านจากรูปถ่ายถือมือ 4 มุม วัดสัดส่วนจริงไม่ได้ -> ทุกค่าเป็นค่าประมาณ
+       น้ำหนักชิ้นจริงยังไม่มี [ต้องยืนยัน: น้ำหนักชิ้น] — ใช้เช็คสัดส่วนภายหลัง ห้ามเดา
+       หน่วย มม. ทั้งหมด
+   ===================================================================== */
+var SCROLL6 = {
+  setting: "shared_prong", // ประมาณจากรูป — รอวัดจริง (หัวยก + เขี้ยวเล็กแบ่งใช้ระหว่างเม็ด + เขี้ยวปลายแถว)
+  stoneCount: 6,           // ประมาณจากรูป — รอวัดจริง (นับได้ 6 เม็ด)
+  innerDiaMm: 17.2,        // ไซซ์อ้างอิงเดียวกับ TRINITY (EU 54) ไม่ใช่ไซซ์จริงของชิ้น — รอวัดจริง
+  stoneMm: 3.0,            // ประมาณจากรูป — รอวัดจริง (พลอยกลม ขนาดดูใกล้กัน อาจไล่ขนาดเล็กน้อย ใช้เท่ากันทุกเม็ด)
+  gapMm: 0.3,              // ประมาณจากรูป — รอวัดจริง (ระยะขอบพลอยถึงขอบพลอยข้างเคียง มีเขี้ยวร่วมคั่น)
+  bandWidthMm: 2.8,        // ประมาณจากรูป — รอวัดจริง (กว้างตัวเรือนใต้แถวพลอย) · เดิม 3.0 ลดให้น้ำหนักคำนวณ ~2.1 g ใกล้น้ำหนักเจ้าของ ~2 g (เดิมคำนวณ ~2.7 g)
+  bandWidthBackMm: 1.6,    // ประมาณจากรูป — รอวัดจริง (ด้านหลังนิ้วดูเป็นเส้นบาง ความมั่นใจต่ำ) · เดิม 1.7
+  bandThickMm: 1.3,        // ประมาณจากรูป — รอวัดจริง (หนาตัวเรือนด้านหน้า ใต้ผนังข้างหัว) · เดิม 1.7
+  bandThickBackMm: 0.95,   // ประมาณจากรูป — รอวัดจริง (หนาด้านหลัง ก้านเรียวลงชัดจากรูปมองทะลุวง) · เดิม 1.15
+  taperRad: 1.3,           // ประมาณจากรูป — รอวัดจริง (ระยะเรียวลง เป็นเรเดียน ความมั่นใจต่ำ)
+  cornerMm: 0.3,           // ประมาณจากรูป — รอวัดจริง (รัศมีมุมมนหน้าตัดตัวเรือน)
+  headHeightMm: 2.4,       // ประมาณจากรูป — รอวัดจริง (ขอบเอวพลอยสูงกว่าผิวตัวเรือน รวมผนังข้างหัว)
+  prongMm: 0.6,            // ประมาณจากรูป — รอวัดจริง (เส้นผ่านศูนย์กลางเขี้ยวร่วม)
+  prongOverMm: 0.25,       // ประมาณจากรูป — รอวัดจริง (ปลายเขี้ยวสูงกว่าขอบเอวพลอย)
+  railMm: 0.45,            // ประมาณจากรูป — รอวัดจริง (ขอบบนผนังข้างหัว/แท่นรองเอวพลอย)
+  gallery: "scroll",       // ประมาณจากรูป — รอวัดจริง (ผนังข้างหัวเป็นลายก้นหอยต่อเนื่องโปร่งทะลุ เห็นชัดในรูปมองทะลุวง)
+  scrollWireMm: 0.3,       // ประมาณจากรูป — รอวัดจริง (เส้นลายก้นหอย เล็กกว่า ~0.4 mm = เสี่ยงหล่อไม่ติด)
+  scrollRadiusMm: 0.78,    // ประมาณจากรูป — รอวัดจริง (รัศมีนอกสุดของก้นหอย 1 ตัว)
+  scrollTurns: 1.0,        // ประมาณจากรูป — รอวัดจริง (จำนวนรอบของก้นหอย 1 ตัว ในรูปราว 1-1.25 รอบ)
+  scrollInner: 0.3,        // ประมาณจากรูป — รอวัดจริง (สัดส่วนรัศมีปลายใน/นอก)
+  shoulder: "scroll_relief", // ประมาณจากรูป — รอวัดจริง (ลาย S นูนในกรอบนูน บนด้านข้างก้านรับข้าง)
+  reliefWireMm: 0.2,       // ประมาณจากรูป — รอวัดจริง (เส้นลายนูน S ยกจากผิวราว 0.1 mm)
+  reliefRadiusMm: 0.4,     // ประมาณจากรูป — รอวัดจริง (รัศมีสูงสุดของม้วน S ในกรอบ; ถูกบีบให้พอดีกรอบ)
+  reliefPitchMm: 1.5,      // ไม่ใช้เมื่อมีก้านรับข้าง (ใช้เฉพาะลายไหล่แบบเดิมที่ไม่มี support)
+  reliefCount: 3,          // ไม่ใช้เมื่อมีก้านรับข้าง
+  /* แก้ตามเจ้าของ 11 พ.ย.: ก้านรับข้าง (side support) + กรอบลายด้านข้าง */
+  support: "block",        // ประมาณจากรูป — รอวัดจริง (ก้านทึบรับหัวแถวทั้ง 2 ปลาย ยกจากตัวเรือนขึ้นไปถึงปลายแกลเลอรี)
+  supportEndDeg: 78,       // ประมาณจากรูป — รอวัดจริง (องศาจากยอดแหวนที่ก้านรับข้างลาดจมเข้าตัวเรือน)
+  supportOutMm: 1.0,       // ประมาณจากรูป — รอวัดจริง (ขอบนอกตั้งตรงอยู่ห่างจากเขี้ยวปลายแถวออกไป ตามเส้นขาวของเจ้าของ)
+  supportBotMm: 0.5,       // ประมาณจากรูป — รอวัดจริง (ขอบล่างก้านเหนือผิวในวง; แผ่นหนา +0.02-0.05 mm จากผิวข้างตัวเรือน)
+  panelBotMm: 0.9,         // ประมาณจากรูป — รอวัดจริง (ขอบล่างกรอบเหนือผิวในวง)
+  panelLenMm: 2.0,         // ประมาณจากรูป — รอวัดจริง (ความยาวกรอบตามแนวโค้ง)
+  panelHMm: 1.45,          // ประมาณจากรูป — รอวัดจริง (ความสูงกรอบ; ถูกลดอัตโนมัติถ้าชนเพดานก้าน)
+  panelFrameMm: 0.18       // ประมาณจากรูป — รอวัดจริง (เส้นผ่านศูนย์กลางสันกรอบนูน; ต่ำกว่า ~0.4 mm = เสี่ยงหล่อไม่ติด)
+};
+
+/* =====================================================================
+   1c) พารามิเตอร์ของแบบ "ฝังล็อค 4 เม็ด" (channel setting) [ต้องยืนยัน: ชื่อแบบ]
+       อ่านจากรูปถ่ายถือมือ 4 มุม (เฉียงหน้า / ข้าง / มองทะลุวง / มองบน) ไม่มีไม้บรรทัด
+       -> ทุกค่าเป็นค่าประมาณ น้ำหนักชิ้นและขนาดพลอยจริงยังไม่มี [ต้องยืนยัน]
+       หน่วย มม. ทั้งหมด
+   ===================================================================== */
+var CHANNEL4 = {
+  setting: "channel",      // ประมาณจากรูป — รอวัดจริง (ผนังรางสองข้างหนีบขอบเอวพลอย ไม่มีเขี้ยว)
+  stoneCount: 4,           // ประมาณจากรูป — รอวัดจริง (นับได้ 4 เม็ด)
+  innerDiaMm: 17.2,        // ไซซ์อ้างอิงเดียวกับแบบอื่น (EU 54) ไม่ใช่ไซซ์จริงของชิ้น — รอวัดจริง
+  stoneMm: 2.5,            // ประมาณจากรูป — รอวัดจริง (ความมั่นใจต่ำ ช่วงที่เป็นไปได้ราว 2.0-3.0 mm; เม็ดเท่ากันทุกเม็ด)
+  gapMm: 0.1,              // ประมาณจากรูป — รอวัดจริง (เม็ดเกือบชิดกัน)
+  bandWidthMm: 3.4,        // ประมาณจากรูป — รอวัดจริง (กว้างหน้าแหวน = พลอย + ผนังรางข้างละ ~0.5 mm)
+  bandWidthBackMm: 2.8,    // ประมาณจากรูป — รอวัดจริง (ด้านหลังนิ้ว ความมั่นใจต่ำ)
+  bandThickMm: 2.6,        // ประมาณจากรูป — รอวัดจริง (หนาสุดใต้แถวพลอย อ่านจากรูปมองทะลุวง) · เดิม 2.8 ลดเพื่อให้น้ำหนักคำนวณ ~2.9 g ตามน้ำหนักเจ้าของ 2.8-3.0 g
+  bandThickBackMm: 0.9,    // ประมาณจากรูป — รอวัดจริง (บางสุดด้านหลัง ก้านเรียวลงต่อเนื่อง)
+  taperRad: 2.0,           // ประมาณจากรูป — รอวัดจริง (ระยะเรียวลงเป็นเรเดียน) · เดิม 2.4
+  cornerMm: 0.25,          // ประมาณจากรูป — รอวัดจริง (รัศมีมุมมนหน้าตัดสี่เหลี่ยม)
+  gallery: "plain",        // ตัวเรือนเรียบ ไม่มีลาย/แกลเลอรี
+  shoulder: "plain",
+  channelDepthMm: 1.9,     // ประมาณจากรูป — รอวัดจริง (ความลึกรางจากขอบบนผนัง ต้องลึกกว่า culet ของพลอย ~1.6 mm; เดิม 2.0 ลดตามตัวเรือนที่บางลง พื้นรางเหลือ 0.7 mm)
+  channelSinkMm: 0.05,     // ประมาณจากรูป — รอวัดจริง (ผิวหน้าพลอยต่ำกว่าขอบบนผนัง 0-0.1 mm)
+  channelEndMm: 0.1,       // ประมาณจากรูป — รอวัดจริง (ช่องว่างขอบพลอยปลายแถวถึงผนังปิดหัว/ท้าย)
+  channelInsetMm: 0.04     // ประมาณจากรูป — รอวัดจริง (ขอบผนังซ้อนทับขอบเอวพลอยข้างละเท่านี้ แทนร่องเกาะเอวที่ไม่ได้โมเดล)
+};
+
+/* =====================================================================
+   1d) พารามิเตอร์ของแบบ "ฝังล็อค 6 เม็ด" (channel setting · ตระกูลเดียวกับ CHANNEL4) [ต้องยืนยัน: ชื่อแบบ]
+       อ่านจากรูปถ่ายถือมือ 4 มุม ไม่มีไม้บรรทัด -> ทุกค่าเป็นค่าประมาณ
+       ต่างจาก 4 เม็ด: พลอยเล็กลง ผนังรางหนาขึ้นเมื่อเทียบพลอย แถวยาวขึ้นพาดโค้งมากขึ้น
+       ไม่เพิ่มโค้ดใน generator: ในรูปมองบน เม็ดปลายแถวดูเอียงต่างจากเม็ดกลาง = แถวตามความโค้งวงแหวน (เม็ดเรียงรัศมี)
+       ไม่ใช่แผ่นหน้าแบนที่พลอยวางขนานกัน -> ใช้ branch channel เดิมได้ [ต้องยืนยัน: หน้าแหวนแบนหรือโค้ง ด้วยการวัดจริง]
+       หน่วย มม. ทั้งหมด
+   ===================================================================== */
+var CHANNEL6 = {
+  setting: "channel",      // ประมาณจากรูป — รอวัดจริง (ผนังรางสองข้างหนีบขอบเอวพลอย ไม่มีเขี้ยว หัว-ท้ายแถวปิดทึบ)
+  stoneCount: 6,           // ประมาณจากรูป — รอวัดจริง (นับได้ 6 เม็ด)
+  innerDiaMm: 17.2,        // ไซซ์อ้างอิงเดียวกับแบบอื่น (EU 54) ไม่ใช่ไซซ์จริงของชิ้น — รอวัดจริง
+  stoneMm: 2.0,            // ประมาณจากรูป — รอวัดจริง (ความมั่นใจต่ำ ช่วงที่เป็นไปได้ราว 1.8-2.3 mm; เม็ดเท่ากันทุกเม็ด; เล็กกว่าแบบ 4 เม็ด)
+  gapMm: 0.15,             // ประมาณจากรูป — รอวัดจริง (เม็ดชิดกัน ห่างกว่าแบบ 4 เม็ดเล็กน้อย)
+  bandWidthMm: 3.2,        // ประมาณจากรูป — รอวัดจริง (กว้างหน้าแหวน แคบกว่าแบบ 4 เม็ดเล็กน้อย; ผนังรางข้างละ ~0.64 mm) · ปรับให้น้ำหนักคำนวณ ~2.7 g ตามน้ำหนักที่เจ้าของประมาณ 2.6-2.8 g
+  bandWidthBackMm: 2.6,    // ประมาณจากรูป — รอวัดจริง (ด้านหลังนิ้ว ความมั่นใจต่ำ)
+  bandThickMm: 2.5,        // ประมาณจากรูป — รอวัดจริง (หนาสุดใต้แถวพลอย อ่านจากรูปมองทะลุวง ราว 2.4-2.8 mm)
+  bandThickBackMm: 0.8,    // ประมาณจากรูป — รอวัดจริง (บางสุดด้านหลัง)
+  taperRad: 2.0,           // ประมาณจากรูป — รอวัดจริง (ระยะเรียวลงเป็นเรเดียน เริ่มหลังปลายแถวพลอย)
+  cornerMm: 0.25,          // ประมาณจากรูป — รอวัดจริง (รัศมีมุมมนหน้าตัดสี่เหลี่ยม)
+  gallery: "plain",        // ตัวเรือนเรียบ ไม่มีลาย/แกลเลอรี
+  shoulder: "plain",
+  channelDepthMm: 1.8,     // ประมาณจากรูป — รอวัดจริง (ความลึกรางจากขอบบนผนัง ลึกกว่า culet ของพลอย 2.0 mm ที่ลึก ~1.3 mm; พื้นรางเหลือ 0.8 mm)
+  channelSinkMm: 0.05,     // ประมาณจากรูป — รอวัดจริง (ผิวหน้าพลอยต่ำกว่าขอบบนผนัง 0-0.1 mm)
+  channelEndMm: 0.15,      // ประมาณจากรูป — รอวัดจริง (ช่องว่างขอบพลอยปลายแถวถึงผนังปิดหัว/ท้าย)
+  channelInsetMm: 0.04     // ประมาณจากรูป — รอวัดจริง (ขอบผนังซ้อนทับขอบเอวพลอยข้างละเท่านี้ แทนร่องเกาะเอว)
+};
+
+/* =====================================================================
+   1e) พารามิเตอร์ของแบบ "เตย 7 เม็ด" (bar_prong · บาร์ขวางระหว่างเม็ด + เตยเล็กข้างเม็ด) [ต้องยืนยัน: ชื่อแบบ]
+       อ่านจากรูปถ่ายถือมือ 4 มุม ไม่มีไม้บรรทัด -> ทุกค่าเป็นค่าประมาณ น้ำหนักชิ้นและขนาดพลอยจริงยังไม่มี [ต้องยืนยัน]
+       ที่ตีความจากรูป: บาร์สี่เหลี่ยมคั่นทุกเม็ด + หัวท้ายแถว (8 ซี่) กว้างเท่าตัวเรือน ช่องระหว่างบาร์เปิดโล่ง (ขอบบนเป็นซี่หวี)
+       เตยเล็กกลม 1 เม็ดต่อด้านข้างต่อพลอย (2/เม็ด) — จำนวน 1 หรือ 2 ต่อด้านไม่แน่ใจ ดู bar7-ring-spec.md
+       หน่วย มม. ทั้งหมด
+   ===================================================================== */
+var BAR7 = {
+  setting: "bar_prong",    // ประมาณจากรูป — รอวัดจริง (พลอยถูกบาร์หนีบหน้า-หลังตามแถว + เตยเล็กที่ขอบข้างเม็ด)
+  stoneCount: 7,           // ประมาณจากรูป — รอวัดจริง (นับได้ 7 เม็ด)
+  innerDiaMm: 17.2,        // ไซซ์อ้างอิงเดียวกับแบบอื่น (EU 54) ไม่ใช่ไซซ์จริงของชิ้น — รอวัดจริง
+  stoneMm: 2.4,            // ประมาณจากรูป — รอวัดจริง (เดิม 2.1 · ขยายเพื่อให้แถวพาดโค้ง ~108° ใกล้ "10 นาฬิกา -> 2 นาฬิกา" ที่เจ้าของชี้ · ช่วงที่เป็นไปได้ 2.0-2.5 mm)
+  gapMm: 0.66,             // = barMm - 0.04 : บาร์ซ้อนทับขอบเอวพลอยข้างละ 0.02 mm แทนร่องเกาะเอว (ระยะศูนย์กลางเม็ด = 3.06 mm)
+  barMm: 0.7,              // ประมาณจากรูป — รอวัดจริง (เดิม 0.5 · หนาขึ้นก็เพื่อขยายระยะเม็ด และพ้นเกณฑ์หล่อ ~0.6 mm)
+  barTopMm: 0.2,           // ประมาณจากรูป — รอวัดจริง (ยอดบาร์สูงกว่าขอบเอวพลอย)
+  beadOutMm: 0.08,         // ประมาณจากรูป — รอวัดจริง (ศูนย์กลางเตยอยู่นอกรัศมีพลอยเท่านี้)
+  bandWidthMm: 3.3,        // ประมาณจากรูป — รอวัดจริง (เดิม 2.9 · กว้างตัวเรือน = ความยาวบาร์ ขอบเสมอข้างตัวเรือน · พลอย:ตัวเรือน ~0.73)
+  bandWidthBackMm: 2.2,    // ประมาณจากรูป — รอวัดจริง (ด้านหลังนิ้ว เส้นบางสม่ำเสมอ)
+  bandThickMm: 1.3,        // ประมาณจากรูป — รอวัดจริง (เดิม 1.5 · หนาตัวเรือนใต้แถว ไม่รวมบาร์ · ลดเพื่อให้ "หัวหนา ก้านบาง" ตามรูป)
+  bandThickBackMm: 1.0,    // ประมาณจากรูป — รอวัดจริง (หนาด้านหลัง ก้านบางสม่ำเสมอ)
+  taperRad: 1.2,           // ประมาณจากรูป — รอวัดจริง (ระยะเรียวลง เดิม 1.6 · เรียวน้อยลงเพราะหน้าตัดหน้า/หลังต่างกันน้อย)
+  cornerMm: 0.25,          // ประมาณจากรูป — รอวัดจริง (รัศมีมุมมนหน้าตัดตัวเรือน)
+  headHeightMm: 1.45,      // ประมาณจากรูป — รอวัดจริง (ขอบเอวพลอยสูงกว่าผิวตัวเรือน ขั้นต่ำให้ culet พ้นผิว 0.25 mm = 1.37 mm · ให้บาร์ลึก/ยาวขึ้นตามรูป)
+  prongMm: 0.6,            // ประมาณจากรูป — รอวัดจริง (เส้นผ่านศูนย์กลางเตยข้าง ต่ำกว่า ~0.7 mm = เสี่ยงหล่อ)
+  gallery: "plain",
+  shoulder: "plain",
+  support: "block",        // ประมาณจากรูป — รอวัดจริง (หัวหนาลดเป็นลิ่มเฉียงที่ปลายแถวทั้ง 2 ข้าง)
+  supportShape: "wedge",   // ผิวนอกโค้งร่วมศูนย์กับวงถึงปลายแถว แล้วเส้นเฉียงตรงลงบรรจบก้านวง ไม่มีหน้าตั้ง (ตาม feedback เจ้าของ 11 พ.ย.)
+  supportEndDeg: 72,       // ประมาณจากรูป — รอวัดจริง (องศาจากยอดแหวนที่ปลายลิ่มบรรจบผิวนอกตัวเรือน)
+  supportOutMm: 1.0,       // ประมาณจากรูป — รอวัดจริง (ขอบนอกตั้งตรงห่างจากบาร์ปลายแถว)
+  supportBotMm: 0.5        // ประมาณจากรูป — รอวัดจริง
+};
+
+/* =====================================================================
+   1f) พารามิเตอร์ของแบบ "แถวเล็ก 7 เม็ด" (window_head · หัวบล็อกผนังข้างแบน + ช่อง D ใต้พลอย + เตยร่วมเล็ก) [ต้องยืนยัน: ชื่อแบบ]
+       ค่าจากเจ้าของ (ประมาณ 11 พ.ย. ไม่ใช่ค่าวัด): พลอยกลม ~1.5 มม. × 7 · น้ำหนักแหวนจริง 1.7-2.0 ก.
+       ที่เหลืออ่านจากรูปถ่ายถือมือ 4 มุม ไม่มีไม้บรรทัด -> ทุกค่าเป็นค่าประมาณ ดู small7-ring-spec.md
+       หน่วย มม. ทั้งหมด
+   ===================================================================== */
+var SMALL7 = {
+  setting: "window_head",  // ประมาณจากรูป — รอวัดจริง (หนามเตยร่วมเล็ก + ผนังข้างหัวแบนมีช่อง D)
+  stoneCount: 7,           // เจ้าของประมาณ 11 พ.ย. (นับได้ 7 เม็ด)
+  innerDiaMm: 17.2,        // ไซซ์อ้างอิงเดียวกับแบบอื่น (EU 54) ไม่ใช่ไซซ์จริงของชิ้น — รอวัดจริง
+  stoneMm: 1.5,            // เจ้าของประมาณ 11 พ.ย. ~1.5 มม. (เท่ากันทุกเม็ด)
+  gapMm: 0.4,              // ประมาณจากรูป — รอวัดจริง (ระยะขอบพลอยถึงขอบพลอย มีเตยร่วมคั่น · ระยะศูนย์กลางเม็ด 1.9 mm)
+  bandWidthMm: 2.3,        // ประมาณจากรูป — รอวัดจริง (กว้างหัว = กว้างก้าน ~2 มม. ตามที่ TL เห็น · ปรับ 2.3 เพื่อให้น้ำหนักโมเดลเข้าช่วง 1.7-2.0 ก.)
+  bandWidthBackMm: 2.3,    // ประมาณจากรูป — รอวัดจริง (ก้านกว้างสม่ำเสมอ)
+  bandThickMm: 1.0,        // ประมาณจากรูป — รอวัดจริง (ก้านบางสม่ำเสมอ หน้าตัดสี่เหลี่ยมแบน)
+  bandThickBackMm: 1.0,    // ประมาณจากรูป — รอวัดจริง
+  taperRad: 1.0,           // ไม่มีผล (หน้า = หลัง)
+  cornerMm: 0.25,          // ประมาณจากรูป — รอวัดจริง (รัศมีมุมมนหน้าตัดตัวเรือน)
+  headHeightMm: 1.85,      // ประมาณจากรูป — รอวัดจริง (ขอบเอวพลอยสูงกว่าผิวก้าน = ความสูงหัว · เดิม 2.05 ลดตาม feedback เจ้าของ: หัวสูงกว่ารูปจริง)
+  topDropMm: 0.05,         // ประมาณจากรูป — รอวัดจริง (ผิวบนหัวต่ำกว่าขอบเอวพลอย: พลอยฝังเกือบเสมอผิวหัว)
+  prongMm: 0.5,            // ประมาณจากรูป — รอวัดจริง (เตยร่วมเล็ก ต่ำกว่าเกณฑ์ ~0.7 mm = เสี่ยงหล่อ)
+  prongOverMm: 0.1,        // ประมาณจากรูป — รอวัดจริง (ปลายเตยสูงกว่าขอบเอวพลอย)
+  prongSideFrac: 0.8,      // ตำแหน่งเตยด้านข้าง = 0.8 × รัศมีพลอย จากกึ่งกลางแถว
+  windowWMm: 1.0,          // ประมาณจากรูป — รอวัดจริง (กว้างช่อง D ใต้พลอยแต่ละเม็ด · เดิม 1.1 เล็กลงชิดใต้พลอยตามรูป 2)
+  windowTopGapMm: 0.25,    // ประมาณจากรูป — รอวัดจริง (ปลายบนโค้งของช่องต่ำกว่าผิวบนหัว · เดิม 0.35)
+  windowBotMm: 0.6,        // ประมาณจากรูป — รอวัดจริง (ก้นช่องสูงกว่าผิวก้าน · เดิม 0.3 ยกก้นช่องขึ้น ช่องเหลือสูง ~1.0 mm)
+  gallery: "plain",
+  shoulder: "plain",
+  support: "block",        // ประมาณจากรูป — รอวัดจริง (ความหนาหัวค่อยๆ ลดลงตามโค้งวงจนบรรจบก้าน)
+  supportShape: "taper",   // เดิม "wedge" (เส้นตรงชัน ~33°->44° เจ้าของติว่าชันไป) · taper = โค้งนุ่ม ยาวขึ้น ~2.3 เท่า (0.2 -> ~0.45 rad)
+  supportTaperPow: 1.7,    // ค่าประมาณ — ความโค้งของโปรไฟล์ r = rก้าน + (Rtop − rก้าน)·(1−u)^1.7 (1 = เส้นตรง · มาก = โค้งนุ่มปลายล่างขึ้น)
+  supportEndDeg: 59,       // ประมาณจากรูป — รอวัดจริง (องศาจากยอดวงที่โค้งสัมผัสผิวก้าน · เดิม 44)
+  supportOutMm: 1.0,       // ไม่มีผลกับ wedge
+  supportBotMm: 0.5
+};
+
+/* =====================================================================
+   2) generator: buildRowRing(params)  (pure · หน่วย มม. · ไม่แตะ DOM/GL)
+      แกนโมเดล: วงแหวนอยู่ระนาบ XY · แกนนิ้ว = Z · หน้าแหวน = +Y
+      คืน { metal, gems[], info, params }
+        metal = { pos:Float32Array, nor:Float32Array, idx:Uint16Array }
+        gems[i] = { center:[x,y,z] (กลางขอบเอวพลอย), normal:[x,y,z], radiusMm, mesh }
+        gems เรียงซ้าย -> ขวาเมื่อมองหน้าแหวนจากด้านบน (x เพิ่มขึ้น)
+      ย้ายเป็น lib/ring-builder/gl/row_v1 ได้โดยตัดส่วนนี้ออกทั้งก้อน
+   ===================================================================== */
+var ROW_DEFAULTS = {          // ค่าสำรองของ generator เท่านั้น ไม่ใช่ค่าของแบบใด
+  setting: "prong4", stoneCount: 3, innerDiaMm: 17.2, stoneMm: 3.0, gapMm: 0.2,
+  bandWidthMm: 3.0, bandWidthBackMm: 3.0, bandThickMm: 1.5, cornerMm: 0.3,
+  headHeightMm: 2.0, prongMm: 0.7, prongOverMm: 0.3, railMm: 0.5, prongAtEnds: true,
+  taperRad: 1.1, gallery: "plain", shoulder: "plain",          // bandThickBackMm ไม่ตั้ง = หนาเท่าหน้า (ไม่เรียวความหนา)
+  scrollWireMm: 0.3, scrollRadiusMm: 0.75, scrollTurns: 1.0, scrollInner: 0.3,
+  reliefWireMm: 0.2, reliefRadiusMm: 0.4, reliefPitchMm: 1.5, reliefCount: 3,
+  support: "none", supportEndDeg: 78, supportOutMm: 1.0, supportBotMm: 0.5,   // ก้านรับข้าง: "none" = ไม่มี (แบบเดิมไม่เปลี่ยน)
+  panelBotMm: 0.9, panelLenMm: 2.0, panelHMm: 1.45, panelFrameMm: 0.18,       // กรอบลายบนก้านรับข้าง (ใช้เมื่อ support = "block")
+  channelDepthMm: 2.0, channelSinkMm: 0.05, channelEndMm: 0.1, channelInsetMm: 0.04,  // ใช้เฉพาะ setting = "channel" (ฝังล็อค/ราง)
+  barMm: 0.5, barTopMm: 0.2, beadOutMm: 0.08,                                         // ใช้เฉพาะ setting = "bar_prong" (บาร์ขวาง + เตยเล็กข้างเม็ด)
+  windowWMm: 1.1, windowTopGapMm: 0.35, windowBotMm: 0.3, topDropMm: 0.05, prongSideFrac: 0.8   // ใช้เฉพาะ setting = "window_head" (ช่อง D ข้างหัว)
+};
+
+function buildRowRing(params){
+  var p = {}, k;
+  for(k in ROW_DEFAULTS) p[k] = ROW_DEFAULTS[k];
+  for(k in params) if(params[k] !== undefined) p[k] = params[k];
+
+  /* ---- helper เวกเตอร์ ---- */
+  function sub(a,b){return [a[0]-b[0],a[1]-b[1],a[2]-b[2]];}
+  function cross(a,b){return [a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]];}
+  function dot(a,b){return a[0]*b[0]+a[1]*b[1]+a[2]*b[2];}
+  function norm(a){var l=Math.sqrt(dot(a,a))||1;return [a[0]/l,a[1]/l,a[2]/l];}
+  function smooth(t){t=Math.max(0,Math.min(1,t));return t*t*(3-2*t);}
+
+  /* ---- ค่าคำนวณพื้นฐาน ---- */
+  var notes = [];
+  var n = Math.max(1, Math.min(9, Math.round(p.stoneCount)));
+  var d = p.stoneMm, rg = d/2;
+  var T = p.bandThickMm, innerR = p.innerDiaMm/2, Rout = innerR + T, Rc = innerR + T/2;
+  var hc = 0.16*d, gT = 0.035*d, hp = 0.43*d;       // crown / girdle / pavilion ตามสัดส่วนกลมมาตรฐาน
+  var rp = p.prongMm/2;
+  var head, chD = 0, chIw = 0, chWall = 0;          // chD/chIw/chWall ใช้เฉพาะ setting "channel"
+  if(p.setting === "shared_bead"){
+    head = Math.max(0.15, hp + gT - T + 0.45);      // ฝังเสมอ: ยกขึ้นเท่าที่ culet ไม่ทะลุผิวในตัวเรือน
+    notes.push("shared_bead: ยกขอบเอวพลอย " + head.toFixed(2) + " mm เหนือผิวตัวเรือน (คำนวณจากความหนา " + T + " mm)");
+  } else if(p.setting === "channel"){
+    /* channel: ผิวหน้าพลอย (table) อยู่ต่ำกว่าขอบบนผนัง channelSinkMm -> ขอบเอวจมใต้ขอบผนัง hc+sink (ผนังบังขอบเอวเมื่อมองข้าง) */
+    head = -(hc + p.channelSinkMm);
+    chD = Math.min(p.channelDepthMm, T - 0.5);
+    chIw = Math.max(0.3, rg - p.channelInsetMm);
+    chWall = p.bandWidthMm/2 - chIw;
+    var culetBelow = hc + p.channelSinkMm + gT + hp;          // culet ต่ำกว่าขอบบนผนังเท่านี้
+    if(chD < p.channelDepthMm - 1e-9) notes.push("channelDepthMm สูงเกินความหนาตัวเรือน — ลดเป็น " + chD.toFixed(2) + " mm");
+    if(chD < culetBelow + 0.15) notes.push("รางตื้น " + chD.toFixed(2) + " mm เทียบกับ culet ที่ลึก " + culetBelow.toFixed(2) + " mm — culet ชนพื้นราง");
+    if(T - chD < 0.6) notes.push("พื้นรางเหลือหนา " + (T-chD).toFixed(2) + " mm ต่ำกว่า ~0.6 mm — เสี่ยงบาง/หล่อไม่ติด");
+    if(chWall < 0.45) notes.push("ผนังรางหนา " + chWall.toFixed(2) + " mm/ข้าง ต่ำกว่า ~0.45 mm — เสี่ยงงอ/พลอยหลุด");
+  } else {
+    var minHead = hp + gT + 0.25;                  // culet ต้องห่างผิวตัวเรือน >= 0.25 mm
+    head = Math.max(p.headHeightMm, minHead);
+    if(head > p.headHeightMm + 1e-9) notes.push("headHeightMm ต่ำเกินไป — ปรับเป็น " + head.toFixed(2) + " mm เพื่อให้ culet พ้นผิว");
+  }
+  if(p.setting !== "channel" && p.prongMm < 0.7) notes.push("prongMm " + p.prongMm + " mm ต่ำกว่าเกณฑ์หล่อเงิน 925 (~0.7 mm) — ภาพนี้เพื่อเทียบรูปเท่านั้น");
+  if(p.gallery === "scroll" && p.setting !== "shared_prong") notes.push("ผนังข้างหัวลายก้นหอยใช้ได้กับ 'หนามเตยร่วม (หัวยก)' เท่านั้น — แบบการฝังนี้ไม่มีผนัง");
+  if(p.gallery === "scroll" && p.setting === "shared_prong" && p.scrollWireMm < 0.4) notes.push("เส้นลายโปร่ง " + p.scrollWireMm + " mm ต่ำกว่า ~0.4 mm — เสี่ยงหล่อไม่ติด/หัก ต้องให้ช่างหล่อยืนยัน");
+  var Rg = Rout + head;                             // รัศมีจากแกนวงแหวนถึงกลางขอบเอวพลอย
+  var pitch = d + p.gapMm;
+  var dphi = 2*Math.asin(Math.min(0.99, pitch/(2*Rg)));   // มุมระหว่างเม็ด ให้ระยะ chord ระหว่างเม็ด = pitch
+  var spanDeg = n*dphi*180/Math.PI;
+  if(spanDeg > 200) notes.push("แถวพลอยพาดยาว " + spanDeg.toFixed(0) + " องศา — ตรวจความเหมาะสมกับไซซ์");
+
+  var frames = [], i, j;
+  for(i=0;i<n;i++){
+    var phi = Math.PI/2 + ((n-1)/2 - i)*dphi;       // i=0 อยู่ซ้ายสุด (x น้อยสุด)
+    var u = [Math.cos(phi), Math.sin(phi), 0];      // normal ของเม็ด (ชี้ออกนอกวง)
+    var t = [Math.sin(phi), -Math.cos(phi), 0];     // ทิศตามแถว
+    frames.push({phi:phi, u:u, t:t, G:[u[0]*Rg, u[1]*Rg, 0]});
+  }
+
+  /* ---- mesh builder ---- */
+  function tube(path, radii, seg){
+    var L = path.length, pos = [], nor = [], idx = [], a, b, Tn, ref, d0, Nn, Bn, an, c, s, nx, ny, nz;
+    for(var ii=0; ii<L; ii++){
+      a = path[ii>0?ii-1:0]; b = path[ii<L-1?ii+1:L-1];
+      Tn = norm(sub(b,a)); ref = [0,0,1];
+      if(Math.abs(dot(Tn,ref)) > 0.9) ref = [1,0,0];
+      d0 = dot(ref,Tn);
+      Nn = norm([ref[0]-Tn[0]*d0, ref[1]-Tn[1]*d0, ref[2]-Tn[2]*d0]);
+      Bn = cross(Tn,Nn);
+      for(var jj=0; jj<seg; jj++){
+        an = 2*Math.PI*jj/seg; c = Math.cos(an); s = Math.sin(an);
+        nx = c*Nn[0]+s*Bn[0]; ny = c*Nn[1]+s*Bn[1]; nz = c*Nn[2]+s*Bn[2];
+        pos.push(path[ii][0]+radii[ii]*nx, path[ii][1]+radii[ii]*ny, path[ii][2]+radii[ii]*nz);
+        nor.push(nx,ny,nz);
+      }
+    }
+    for(ii=0; ii<L-1; ii++) for(jj=0; jj<seg; jj++){
+      var j2 = (jj+1)%seg, q0 = ii*seg+jj, q1 = ii*seg+j2, q2 = (ii+1)*seg+j2, q3 = (ii+1)*seg+jj;
+      idx.push(q0,q1,q2, q0,q2,q3);
+    }
+    return {pos:pos, nor:nor, idx:idx};
+  }
+  function sphere(c, r, lat, lon){
+    var pos = [], nor = [], idx = [], ii, jj, th, ph, nx, ny, nz;
+    for(ii=0; ii<=lat; ii++){
+      th = Math.PI*ii/lat;
+      for(jj=0; jj<=lon; jj++){
+        ph = 2*Math.PI*jj/lon;
+        nx = Math.sin(th)*Math.cos(ph); ny = Math.cos(th); nz = Math.sin(th)*Math.sin(ph);
+        pos.push(c[0]+r*nx, c[1]+r*ny, c[2]+r*nz); nor.push(nx,ny,nz);
+      }
+    }
+    for(ii=0; ii<lat; ii++) for(jj=0; jj<lon; jj++){
+      var q = ii*(lon+1)+jj;
+      idx.push(q, q+1, q+lon+2, q, q+lon+2, q+lon+1);
+    }
+    return {pos:pos, nor:nor, idx:idx};
+  }
+  function merge(parts){
+    var P = [], N = [], I = [], off = 0, m, x;
+    for(var pi=0; pi<parts.length; pi++){
+      m = parts[pi];
+      for(x=0; x<m.pos.length; x++){P.push(m.pos[x]); N.push(m.nor[x]);}
+      for(x=0; x<m.idx.length; x++) I.push(m.idx[x]+off);
+      off += m.pos.length/3;
+    }
+    return {pos:P, nor:N, idx:I};
+  }
+  function finalize(m){
+    if(m.pos.length/3 > 65535) notes.push("mesh เกิน 65535 vertex — ต้องใช้ index 32 บิต");
+    return {pos:new Float32Array(m.pos), nor:new Float32Array(m.nor), idx:new Uint16Array(m.idx)};
+  }
+  function fill(len, v){var o = [], q; for(q=0;q<len;q++) o.push(v); return o;}
+  function seg2(a, b, r){return tube([a, [(a[0]+b[0])/2,(a[1]+b[1])/2,(a[2]+b[2])/2], b], [r,r,r], 8);}
+
+  /* ---- เส้นก้นหอยต่อเนื่อง (running scroll) ในระนาบ 2 มิติ (x=ตามแถว, y=สูง) ----
+     คาบ = px ต่อก้นหอย 1 ตัว: คลื่นไซน์ต่อเนื่อง + ก้นหอยห้อยที่ยอดคลื่น (ม้วนตามเข็ม) สลับกับท้องคลื่น (ทวนเข็ม)
+     คืน array ของ polyline [[x,y],...] — ก้นหอยแตะคลื่นที่ยอด/ท้อง (เส้นซ้อนทับกันเป็นลายโปร่งที่เชื่อมกัน) */
+  function scrollChain(cnt, px, A, R0, turns, rIn, pad, step){
+    var paths = [], x0 = -(cnt-1)/2*px, xa = x0 - pad, xb = x0 + (cnt-1)*px + pad;
+    var ns = Math.max(8, Math.ceil((xb-xa)/step)), w = [], q, kk, x, Th = 2*Math.PI*turns;
+    for(q=0;q<=ns;q++){x = xa + (xb-xa)*q/ns; w.push([x, A*Math.cos(Math.PI*(x-x0)/px)]);}
+    paths.push(w);
+    for(kk=0;kk<cnt;kk++){
+      var sgn = (kk%2===0) ? 1 : -1, cx = x0 + kk*px, cy = sgn*(A-R0), a0 = sgn > 0 ? Math.PI/2 : -Math.PI/2;
+      var cs = Math.max(20, Math.ceil(Th*R0/step*1.4)), sp = [], tt, rr, an;
+      for(q=0;q<=cs;q++){
+        tt = Th*q/cs; rr = R0*(1-(1-rIn)*tt/Th); an = a0 - sgn*tt;
+        sp.push([cx + rr*Math.cos(an), cy + rr*Math.sin(an)]);
+      }
+      paths.push(sp);
+    }
+    return paths;
+  }
+
+  /* ---- ตัวเรือน: กวาดหน้าตัดสี่เหลี่ยมมุมมนรอบวง กว้าง/หนาเรียวลงหลังแถวพลอย ---- */
+  var NA = 6, M = 4*(NA+1), NSEG = 240;
+  function profile(hw, ht, r){
+    r = Math.min(r, hw*0.9, ht*0.9);
+    var cx = hw-r, cy = ht-r, out = [], cs = [[cx,cy,0],[-cx,cy,Math.PI/2],[-cx,-cy,Math.PI],[cx,-cy,1.5*Math.PI]], c, kk, a;
+    for(c=0;c<4;c++) for(kk=0;kk<=NA;kk++){
+      a = cs[c][2] + (Math.PI/2)*(kk/NA);
+      out.push([cs[c][0]+r*Math.cos(a), cs[c][1]+r*Math.sin(a), Math.cos(a), Math.sin(a)]);   // x=แกนนิ้ว y=รัศมี nx ny=normal
+    }
+    return out;
+  }
+  var rowHalf = ((n-1)/2)*dphi + dphi/2 + 0.02;
+  var TB = (p.bandThickBackMm === undefined) ? T : p.bandThickBackMm;     // หนาด้านหลัง (ไม่ตั้ง = เท่าด้านหน้า)
+  function blendAt(thx){                                                    // 0 = หน้า (ใต้แถวพลอย) -> 1 = หลัง
+    var dl = Math.abs(Math.atan2(Math.sin(thx-Math.PI/2), Math.cos(thx-Math.PI/2)));
+    return smooth((dl-rowHalf)/p.taperRad);
+  }
+  function widthAt(bl){return p.bandWidthMm + (p.bandWidthBackMm - p.bandWidthMm)*bl;}
+  function thickAt(bl){return T + (TB - T)*bl;}
+  var bPos = [], bNor = [], bIdx = [];
+  var NSEGB = (p.setting === "channel") ? 0 : NSEG;                        // channel สร้างตัวเรือนในบล็อกแยกด้านล่าง
+  for(i=0;i<NSEGB;i++){
+    var th =2*Math.PI*i/NSEG, co = Math.cos(th), si = Math.sin(th);
+    var bl0 = blendAt(th), Tt = thickAt(bl0);
+    var pr = profile(widthAt(bl0)/2, Tt/2, p.cornerMm);
+    for(j=0;j<M;j++){
+      var rr = innerR + Tt/2 + pr[j][1];                                    // ผิวในคงที่ที่ innerR เสมอ (ไซซ์ไม่เพี้ยน)
+      bPos.push(rr*co, rr*si, pr[j][0]);
+      bNor.push(pr[j][3]*co, pr[j][3]*si, pr[j][2]);
+    }
+  }
+  for(i=0;i<NSEGB;i++) for(j=0;j<M;j++){
+    var i2 = (i+1)%NSEG, j2 = (j+1)%M;
+    bIdx.push(i*M+j, i2*M+j, i2*M+j2, i*M+j, i2*M+j2, i*M+j2);
+  }
+  if(p.setting === "channel"){
+    /* ตัวเรือนฝังล็อค: หน้าตัดสี่เหลี่ยมมุมมน + ร่องราง (notch) กลางผิวบนเฉพาะช่วงแถวพลอย
+       ผนังสองข้างกับหัว/ท้ายแถวทึบเป็นชิ้นเดียวกับตัวเรือน (ไม่มี boolean) · ปลายรางมีแผ่นปิดหัว/ท้ายแยก
+       ring ที่ปลายราง 2 ใบซ้อนมุมเดียวกัน (ลึก 0 กับลึกเต็ม) แล้วไม่ต่อหน้ากัน เพื่อให้ผนังปลายรางตั้งฉาก */
+    var chHalf = ((n-1)/2)*dphi + (rg + p.channelEndMm)/Rg;                  // ครึ่งความยาวรางเป็นเรเดียน (วัดที่รัศมีเอวพลอย)
+    var thR = Math.PI/2 - chHalf, thL = Math.PI/2 + chHalf;
+    var chProfile = function(hw, ht, r, iw, D){
+      r = Math.min(r, hw*0.9, ht*0.9);
+      var cx = hw-r, cy = ht-r, out = [], cs = [[cx,cy,0],[-cx,cy,Math.PI/2],[-cx,-cy,Math.PI],[cx,-cy,1.5*Math.PI]], c, kk, a;
+      for(c=0;c<4;c++){
+        for(kk=0;kk<=NA;kk++){
+          a = cs[c][2] + (Math.PI/2)*(kk/NA);
+          out.push([cs[c][0]+r*Math.cos(a), cs[c][1]+r*Math.sin(a), Math.cos(a), Math.sin(a)]);
+        }
+        if(c===0){      // หลังมุมบนขวา: ขอบบนผนัง -> ผนังใน -> พื้นราง -> ผนังใน -> ขอบบนผนังอีกข้าง (จุดซ้อนตำแหน่งเดียวกันแต่ normal ต่างกัน = ขอบคม)
+          out.push([iw,ht,0,1],[iw,ht,-1,0],[iw,ht-D,-1,0],[iw,ht-D,0,1],[-iw,ht-D,0,1],[-iw,ht-D,1,0],[-iw,ht,1,0],[-iw,ht,0,1]);
+        }
+      }
+      return out;
+    };
+    var MC = 4*(NA+1) + 8, items = [], cri, thU;
+    for(cri=0;cri<NSEG;cri++){
+      thU = 2*Math.PI*cri/NSEG;
+      items.push({th:thU, ord:1, depth:(Math.abs(thU-Math.PI/2) < chHalf ? chD : 0), brk:false});
+    }
+    items.push({th:thR, ord:0, depth:0, brk:true}, {th:thR, ord:1, depth:chD, brk:false},
+               {th:thL, ord:0, depth:chD, brk:true}, {th:thL, ord:1, depth:0, brk:false});
+    items.sort(function(x, y){return (x.th - y.th) || (x.ord - y.ord);});
+    items.forEach(function(it){
+      var co1 = Math.cos(it.th), si1 = Math.sin(it.th), bl1 = blendAt(it.th), Tt1 = thickAt(bl1), jj;
+      var pr1 = chProfile(widthAt(bl1)/2, Tt1/2, p.cornerMm, chIw, it.depth);
+      for(jj=0;jj<MC;jj++){
+        var rr1 = innerR + Tt1/2 + pr1[jj][1];
+        bPos.push(rr1*co1, rr1*si1, pr1[jj][0]);
+        bNor.push(pr1[jj][3]*co1, pr1[jj][3]*si1, pr1[jj][2]);
+      }
+    });
+    var nIt = items.length, ri, jc, ra, rb2, jn;
+    for(ri=0;ri<nIt;ri++){
+      if(items[ri].brk) continue;
+      ra = ri*MC; rb2 = ((ri+1)%nIt)*MC;
+      for(jc=0;jc<MC;jc++){
+        jn = (jc+1)%MC;
+        bIdx.push(ra+jc, rb2+jc, rb2+jn, ra+jc, rb2+jn, ra+jn);
+      }
+    }
+    /* แผ่นปิดหัว/ท้ายราง (ผนังตั้งฉากกับแนวแถว หันเข้าหาพลอย) */
+    [[thR, 1],[thL, -1]].forEach(function(e){
+      var thE = e[0], sg = e[1], b0 = bPos.length/3, nx = -Math.sin(thE)*sg, ny = Math.cos(thE)*sg;
+      var cc = Math.cos(thE), ss = Math.sin(thE), rb = Rout - chD, rt = Rout;
+      bPos.push(rb*cc, rb*ss, -chIw,  rt*cc, rt*ss, -chIw,  rt*cc, rt*ss, chIw,  rb*cc, rb*ss, chIw);
+      for(var qv=0;qv<4;qv++) bNor.push(nx, ny, 0);
+      bIdx.push(b0, b0+1, b0+2, b0, b0+2, b0+3);
+    });
+  }
+  var parts = [{pos:bPos, nor:bNor, idx:bIdx}];
+
+  /* ---- การฝัง ---- */
+  var f, a, blockBuilt = false;
+  if(p.setting === "prong4"){
+    /* เขี้ยว 4 ต่อเม็ด ที่มุมทแยง (45/135/225/315 องศา) ปลายงอทับขอบเอว */
+    var rho = rg + 0.6*rp, over = p.prongOverMm;
+    for(i=0;i<n;i++){
+      f = frames[i];
+      for(a=1;a<8;a+=2){
+        var al = a*Math.PI/4, cx = Math.cos(al), sx = Math.sin(al);
+        var P = function(rad, h){
+          var x = rad*cx, z = rad*sx;
+          return [f.G[0]+f.t[0]*x+f.u[0]*h, f.G[1]+f.t[1]*x+f.u[1]*h, f.G[2]+f.t[2]*x+f.u[2]*h+z];
+        };
+        var path = [P(rho,-head-0.2), P(rho,0), P(rho-0.25*rp,over*0.55), P(rho-0.8*rp,over*0.9), P(rho-1.3*rp,over*0.95)];
+        parts.push(tube(path, [1.15*rp, rp, 0.85*rp, 0.65*rp, 0.2*rp], 8));
+      }
+    }
+    /* ราวเชื่อมโคนเขี้ยว ข้างละเส้นตามโค้ง ผ่านศูนย์กลางเขี้ยวทุกต้น (gallery เปิดโล่งอยู่ใต้เม็ด) */
+    var off = rho*Math.SQRT1_2, Rrail = Rout + head*0.4;
+    var phiA = frames[0].phi + off/Rrail, phiB = frames[n-1].phi - off/Rrail;
+    var steps = Math.max(3, Math.ceil((phiA-phiB)/0.06));
+    for(var sg=-1; sg<=1; sg+=2){
+      var rpath = [], rrad = [];
+      for(i=0;i<=steps;i++){
+        var ph = phiA + (phiB-phiA)*i/steps;
+        rpath.push([Rrail*Math.cos(ph), Rrail*Math.sin(ph), sg*off]);
+        rrad.push(p.railMm/2);
+      }
+      parts.push(tube(rpath, rrad, 8));
+    }
+  } else if(p.setting === "shared_prong" || p.setting === "bar_prong" || p.setting === "window_head"){
+    /* shared_prong: หัวยก = ผนังข้างหัว 2 ข้าง (z=±zw) + ราวบนรองเอวพลอย + เขี้ยวเล็กร่วมระหว่างเม็ด 2 ต้น/ช่อง
+       (ช่องระหว่างเม็ด + หัวท้ายแถว) ปลายเขี้ยวเป็นหัวมนทับขอบเอวพลอย — พิกัด (x ตามแถว, y สูง, z ข้าง) แปลงเป็นโค้งวงแหวนด้วย G3 */
+    var zw = 0.62*rg, wR = p.scrollWireMm/2, rR = p.railMm/2;
+    var Rtop = (p.setting === "bar_prong") ? Rg + p.barTopMm : (p.setting === "window_head" ? Rg - p.topDropMm : Rg - 0.3), Hg = Rtop - Rout, Rmid = Rout + Hg/2, pitchX = Rmid*dphi, Lx = n*pitchX;
+    var G3 = function(x, y, z){var ph = Math.PI/2 - x/Rmid, r = Rmid + y; return [r*Math.cos(ph), r*Math.sin(ph), z];};
+    var nsx = Math.max(8, Math.ceil(Lx/0.4)), sg2, q2, e2, pts2;
+    if(p.setting === "shared_prong"){      // ราว/ผนังข้างหัว/เขี้ยวร่วม เฉพาะหนามเตยร่วม (bar_prong ข้ามไปสร้างบาร์ใน else ด้านล่าง)
+    /* ราวบน 2 ข้าง (แท่นรองเอวพลอย) + ปิดหัวท้าย: เสาตั้ง + คานข้าม */
+    for(sg2=-1; sg2<=1; sg2+=2){
+      pts2 = [];
+      for(q2=0;q2<=nsx;q2++) pts2.push(G3(-Lx/2 + Lx*q2/nsx, Hg/2, sg2*zw));
+      parts.push(tube(pts2, fill(pts2.length, rR), 8));
+    }
+    for(e2=-1; e2<=1; e2+=2){
+      /* เสาตั้งหัวท้ายใช้เฉพาะเมื่อไม่มีก้านรับข้าง (ถ้ามีก้านทึบ ก้านทำหน้าที่แทน — เลิกใช้เสาบางทแยงเดิม) */
+      if(p.support !== "block") for(sg2=-1; sg2<=1; sg2+=2) parts.push(seg2(G3(e2*Lx/2, -Hg/2+0.05, sg2*zw), G3(e2*Lx/2, Hg/2, sg2*zw), rR));
+      parts.push(seg2(G3(e2*Lx/2, Hg/2, -zw), G3(e2*Lx/2, Hg/2, zw), rR));
+    }
+    /* ผนังข้างหัว */
+    if(p.gallery === "scroll"){
+      var gA = Hg/2 - wR, gR0 = Math.min(p.scrollRadiusMm, gA*0.98);
+      var chain = scrollChain(n, pitchX, gA, gR0, p.scrollTurns, p.scrollInner, pitchX/2, 0.25);
+      for(sg2=-1; sg2<=1; sg2+=2) chain.forEach(function(path){
+        var gp = path.map(function(q){return G3(q[0], q[1], sg2*zw);});
+        parts.push(tube(gp, fill(gp.length, wR), 6));
+      });
+    } else {
+      /* plain: แผ่นผนังบางเรียบ 2 ผิวต่อข้าง (ความหนา = scrollWireMm) */
+      var sp = [], sn = [], si2 = [], ss2, zz, vi, ph2;
+      for(sg2=-1; sg2<=1; sg2+=2) for(ss2=-1; ss2<=1; ss2+=2){
+        zz = sg2*zw + ss2*wR; vi = sp.length/3;
+        for(q2=0;q2<=nsx;q2++){
+          ph2 = Math.PI/2 - (-Lx/2 + Lx*q2/nsx)/Rmid;
+          sp.push(Rout*Math.cos(ph2), Rout*Math.sin(ph2), zz, Rtop*Math.cos(ph2), Rtop*Math.sin(ph2), zz);
+          sn.push(0,0,ss2, 0,0,ss2);
+        }
+        for(q2=0;q2<nsx;q2++){var ia = vi + q2*2; si2.push(ia,ia+1,ia+3, ia,ia+3,ia+2);}
+      }
+      parts.push({pos:sp, nor:sn, idx:si2});
+    }
+    /* เขี้ยวร่วม: ช่อง i = 0..n (หัวท้ายเปิดตาม prongAtEnds) */
+    for(i=0;i<=n;i++){
+      if(!p.prongAtEnds && (i===0 || i===n)) continue;
+      var pg = Math.PI/2 + ((n-1)/2 - (i-0.5))*dphi, cg = Math.cos(pg), sg = Math.sin(pg);
+      for(sg2=-1; sg2<=1; sg2+=2){
+        var PP = function(r, z){return [r*cg, r*sg, z];};
+        var tipC = PP(Rg + p.prongOverMm, sg2*zw*0.86);
+        parts.push(tube([PP(Rtop-0.05, sg2*zw), PP(Rg-0.1, sg2*zw*0.98), PP(Rg+0.05, sg2*zw*0.92), tipC], [1.1*rp, rp, 0.95*rp, 0.8*rp], 8));
+        parts.push(sphere(tipC, 1.15*rp, 5, 8));
+      }
+    }
+    } else {
+      if(p.setting === "bar_prong"){
+      /* bar_prong: บาร์สี่เหลี่ยมขวางแถว n+1 ซี่ (คั่นระหว่างเม็ด + หัวท้าย) กว้างเท่าตัวเรือน ตั้งจากผิวตัวเรือน
+         ยอดสูงเหนือขอบเอวพลอย barTopMm · ช่องระหว่างบาร์เปิดโล่ง (ขอบบนเป็นซี่หวี) · เตยเล็กกลม 1 เม็ด/ด้านข้าง/พลอย (รวม 2/เม็ด)
+         ใช้ก้านรับข้าง (support = "block") ร่วมกับ shared_prong ด้านล่าง */
+      var bxT = p.barMm/2, bxZ = widthAt(0)/2, bxR0 = Rout - 0.1, bxR1 = Rg + p.barTopMm;
+      var bxBox = function(ph0){
+        var cs0 = Math.cos(ph0), sn0 = Math.sin(ph0), er = [cs0, sn0, 0], et = [-sn0, cs0, 0], bp = [], bn = [], bi = [];
+        var cn = function(a, r, c){return [er[0]*r + et[0]*a*bxT, er[1]*r + et[1]*a*bxT, c*bxZ];};
+        var quad = function(A, B, C, D, nv){
+          var b0 = bp.length/3;
+          [A, B, C, D].forEach(function(q){bp.push(q[0], q[1], q[2]); bn.push(nv[0], nv[1], nv[2]);});
+          bi.push(b0, b0+1, b0+2, b0, b0+2, b0+3);
+        };
+        quad(cn(-1,bxR1,-1), cn(1,bxR1,-1), cn(1,bxR1,1), cn(-1,bxR1,1), er);                               // ยอดบาร์
+        quad(cn(-1,bxR0,-1), cn(1,bxR0,-1), cn(1,bxR0,1), cn(-1,bxR0,1), [-er[0], -er[1], 0]);              // ฐาน (ฝังใต้ผิวตัวเรือน)
+        quad(cn(1,bxR0,-1), cn(1,bxR1,-1), cn(1,bxR1,1), cn(1,bxR0,1), et);                                  // ด้านหนึ่งหันเข้าเม็ด
+        quad(cn(-1,bxR0,-1), cn(-1,bxR1,-1), cn(-1,bxR1,1), cn(-1,bxR0,1), [-et[0], -et[1], 0]);             // อีกด้านหันเข้าเม็ด
+        quad(cn(-1,bxR0,1), cn(1,bxR0,1), cn(1,bxR1,1), cn(-1,bxR1,1), [0, 0, 1]);                          // ข้างตัวเรือน +z
+        quad(cn(-1,bxR0,-1), cn(1,bxR0,-1), cn(1,bxR1,-1), cn(-1,bxR1,-1), [0, 0, -1]);                     // ข้างตัวเรือน -z
+        return {pos:bp, nor:bn, idx:bi};
+      };
+      for(i=0;i<=n;i++) parts.push(bxBox(Math.PI/2 + ((n-1)/2 - (i-0.5))*dphi));
+      /* เตยเล็ก: เม็ดกลมที่ขอบเอวพลอยด้านข้างตัวเรือน (z = ±(รัศมีพลอย + beadOutMm)) + ก้านสั้นลงฝังตัวเรือน */
+      var bdR = 1.15*rp, bdZ = rg + p.beadOutMm;
+      for(i=0;i<n;i++){
+        f = frames[i];
+        for(sg2=-1; sg2<=1; sg2+=2){
+          var BP = function(r){return [r*Math.cos(f.phi), r*Math.sin(f.phi), sg2*bdZ];};
+          var bdTop = Rg + 0.03;
+          parts.push(tube([BP(Rout-0.1), BP((Rout-0.1+bdTop)/2), BP(bdTop)], [1.1*rp, rp, 0.95*rp], 8));
+          parts.push(sphere(BP(bdTop), bdR, 5, 8));
+        }
+      }
+      if(p.barMm < 0.6) notes.push("บาร์หนา " + p.barMm + " mm ต่ำกว่า ~0.6 mm — เสี่ยงหล่อไม่ติด/งอ ต้องให้ช่างหล่อยืนยัน");
+      if(p.gapMm < p.barMm - 0.15) notes.push("gapMm " + p.gapMm + " mm น้อยกว่าความหนาบาร์ " + p.barMm + " mm มาก — บาร์ทับพลอย");
+      if(bdZ + bdR > bxZ + 0.01) notes.push("เตยข้างยื่นเกินความกว้างตัวเรือน " + (bdZ + bdR - bxZ).toFixed(2) + " mm");
+      } else {
+      /* window_head: หัวบล็อกกว้างเท่าตัวเรือน สร้างเป็นเปลือก (ไม่มี boolean):
+         ผนังข้าง 2 ด้าน = แผ่นที่เจาะช่อง D (ปลายบนโค้ง ล่างตรง) ใต้พลอยทุกเม็ด + ผนังอุโมงค์ช่อง (เห็นก้นพลอยทะลุช่อง) + ผิวบนโค้งตามวง
+         + เตยเล็กร่วม 2 ข้างต่อช่องระหว่างเม็ด · ปลายหัวใช้ก้านรับข้างแบบ wedge ร่วมด้านล่าง
+         ช่องเป็นพิกัด (s ตามแถว, y รัศมี) ต่อเซลล์ 1 เม็ด · ใช้ "รังสี" จากกลางช่อง จับคู่จุดขอบเซลล์กับขอบช่องเพื่อเรียงสามเหลี่ยมวงแหวน */
+        var whHW = widthAt(0)/2, whRm = (Rout + Rtop)/2, whSh = whRm*dphi/2;
+        var whWw = p.windowWMm, whYc = Rtop - p.windowTopGapMm - whWw/2, whYb = Rout + p.windowBotMm, whRb = Rout - 0.2;
+        var whH1 = Rtop - whYc, whH2 = whYc - whRb, whHd = whYc - whYb, whT = [], whK, whE, whZ;
+        if(whHd < 0.2 || whSh - whWw/2 < 0.2) notes.push("ช่องหน้าต่างชิดขอบเซลล์/ตื้นเกินไป — ตรวจ windowWMm/windowBotMm");
+        for(whK=0; whK<24; whK++) whT.push(2*Math.PI*whK/24);
+        [[whSh, whH1], [-whSh, whH1], [-whSh, -whH2], [whSh, -whH2], [whWw/2, -whHd], [-whWw/2, -whHd]].forEach(function(cr){
+          var tc = Math.atan2(cr[1], cr[0]); whT.push(tc < 0 ? tc + 2*Math.PI : tc);       // มุมของมุมเซลล์/มุมช่อง ให้จุดตกตรงมุมพอดี
+        });
+        whT.sort(function(x, y){return x - y;});
+        var whM = whT.length;
+        var whRay = function(t){
+          var c = Math.cos(t), s = Math.sin(t), ac = Math.max(Math.abs(c), 1e-6), as = Math.max(Math.abs(s), 1e-6);
+          var to = Math.min(whSh/ac, s > 0 ? whH1/as : whH2/as);                          // ขอบเซลล์สี่เหลี่ยม
+          var th = s > 0 ? whWw/2 : Math.min((whWw/2)/ac, whHd/as);                       // ขอบช่อง D: ครึ่งวงกลมบน + ข้างตรง + ก้นตรง
+          return [to*c, to*s, th*c, th*s];
+        };
+        for(i=0;i<n;i++){
+          f = frames[i];
+          var whPos = function(s, y, z){var an = f.phi - s/whRm, r = whYc + y; return [r*Math.cos(an), r*Math.sin(an), z];};
+          var tnP = [], tnN = [], tnI = [], wk, wr, q0, wk2;
+          for(var sgw=-1; sgw<=1; sgw+=2){
+            var wP = [], wN = [], wI = [];
+            for(wk=0; wk<whM; wk++){
+              wr = whRay(whT[wk]); wk2 = (wk+1)%whM;
+              q0 = whPos(wr[0], wr[1], sgw*whHW); wP.push(q0[0], q0[1], q0[2]); wN.push(0, 0, sgw);
+              q0 = whPos(wr[2], wr[3], sgw*whHW); wP.push(q0[0], q0[1], q0[2]); wN.push(0, 0, sgw);
+              wI.push(2*wk, 2*wk2, 2*wk2+1, 2*wk, 2*wk2+1, 2*wk+1);
+            }
+            parts.push({pos:wP, nor:wN, idx:wI});
+          }
+          for(wk=0; wk<whM; wk++){                                                         // ผนังอุโมงค์ช่อง (normal ชี้เข้าช่อง)
+            wr = whRay(whT[wk]); wk2 = (wk+1)%whM;
+            var hl = Math.sqrt(wr[2]*wr[2] + wr[3]*wr[3]) || 1, hs = wr[2]/hl, hy = wr[3]/hl;
+            var an2 = f.phi - wr[2]/whRm, ex = Math.cos(an2), ey = Math.sin(an2);
+            for(whE=-1; whE<=1; whE+=2){
+              q0 = whPos(wr[2], wr[3], whE*whHW); tnP.push(q0[0], q0[1], q0[2]);
+              tnN.push(-(hs*ey + hy*ex), -(-hs*ex + hy*ey), 0);
+            }
+            tnI.push(2*wk, 2*wk2, 2*wk2+1, 2*wk, 2*wk2+1, 2*wk+1);
+          }
+          parts.push({pos:tnP, nor:tnN, idx:tnI});
+        }
+        /* ผิวบนหัว: แถบโค้งที่รัศมี Rtop ตลอดแถวพลอย กว้างเท่าตัวเรือน */
+        var whNa = n*6, wtP = [], wtN = [], wtI = [], whA, whPh, whQ;
+        for(whA=0; whA<=whNa; whA++){
+          whPh = Math.PI/2 + n*dphi/2 - n*dphi*whA/whNa;
+          for(whZ=-1; whZ<=1; whZ+=2){wtP.push(Rtop*Math.cos(whPh), Rtop*Math.sin(whPh), whZ*whHW); wtN.push(Math.cos(whPh), Math.sin(whPh), 0);}
+          if(whA < whNa){whQ = 2*whA; wtI.push(whQ, whQ+1, whQ+3, whQ, whQ+3, whQ+2);}
+        }
+        parts.push({pos:wtP, nor:wtN, idx:wtI});
+        /* เตยเล็กร่วม: ช่องระหว่างเม็ด + หัวท้ายแถว ด้านละ 1 ต้น ที่ขอบข้างพลอย (z = ±zp) ปลายเป็นหัวกลมเล็กยื่นเหนือขอบเอวนิดเดียว */
+        var whZp = rg*p.prongSideFrac;
+        for(i=0;i<=n;i++){
+          var whPg = Math.PI/2 + ((n-1)/2 - (i-0.5))*dphi, whCg = Math.cos(whPg), whSg = Math.sin(whPg);
+          for(sg2=-1; sg2<=1; sg2+=2){
+            var WPp = function(r){return [r*whCg, r*whSg, sg2*whZp];};
+            var whTip = Rg + p.prongOverMm;
+            parts.push(tube([WPp(Rtop-0.1), WPp(Rg-0.05), WPp(whTip)], [1.1*rp, rp, 0.9*rp], 8));
+            parts.push(sphere(WPp(whTip), 1.1*rp, 5, 8));
+          }
+        }
+      }
+    }
+    /* ---- ก้านรับข้าง (side support): ก้านทึบหัวท้ายแถว ยกจากตัวเรือนขึ้นไปถึงปลายแกลเลอรี ----
+       หน้าตัดในระนาบแหวน (α = มุมจากยอดแหวน, r = รัศมี):
+         ขอบใน = เส้นรัศมีที่ α0 (ปลายแถวพลอย) · ขอบบน = โค้ง Rtop แล้วตกเป็นเส้นตั้งตรง x = xOut ตามเส้นขาวของเจ้าของ
+         ขอบล่าง = rBot (ฝังในตัวเรือน) · สิ้นสุดที่ α1 · ฉีดตามความกว้าง z = ±(กว้างตัวเรือนที่มุมนั้น/2 + 0.02-0.05 mm) */
+    if(p.support === "block"){
+      blockBuilt = true;
+      var a0 = n*dphi/2, a1 = Math.max(a0+0.2, p.supportEndDeg*Math.PI/180);
+      var xOut = Rtop*Math.sin(a0) + p.supportOutMm;                         // ประมาณจากรูป
+      var rBot = innerR + p.supportBotMm;                                    // ประมาณจากรูป
+      /* supportShape "wedge" (ใช้กับ bar_prong): ไม่มีหน้าตั้ง — ผิวนอกเป็นโค้ง Rtop จนถึงปลายแถว แล้วเป็นเส้นเฉียงตรงลงไปบรรจบผิวนอกตัวเรือนที่ α1
+         เก็บเส้นเป็นพิกัด (u = r·sinα, v = r·cosα) · แบบเดิม (ไม่ตั้ง supportShape) ใช้เส้นตั้งตามเส้นเจ้าของเหมือนเดิมทุกประการ */
+      /* supportShape "taper" (opt-in · ใช้กับ window_head): ความหนาหัวลดลงตามโค้งวงแบบนุ่ม r(α) = rผิวนอกตัวเรือน + (Rtop − r)·(1−u)^k
+         u = (α−α0)/(α1−α0) · k = supportTaperPow (ค่าเริ่ม 1.7) — มุมบนที่ปลายแถวคมเล็กน้อย ปลายล่างสัมผัสผิวก้านแบบนุ่ม ไม่มีหน้าตั้ง */
+      var taper = (p.supportShape === "taper"), tPow = (p.supportTaperPow === undefined) ? 1.7 : p.supportTaperPow;
+      var wedge = (p.supportShape === "wedge"), wN = null, wU0 = 0, wV0 = 0;
+      if(wedge){
+        var wr1 = innerR + thickAt(blendAt(Math.PI/2 + a1));                 // ผิวนอกตัวเรือนที่ปลายลิ่ม
+        wU0 = Rtop*Math.sin(a0); wV0 = Rtop*Math.cos(a0);
+        var wdu = wr1*Math.sin(a1) - wU0, wdv = wr1*Math.cos(a1) - wV0, wl = Math.sqrt(wdu*wdu + wdv*wdv);
+        wN = [-wdv/wl, wdu/wl];                                              // normal ของเส้นเฉียงในพิกัด (u,v)
+        if(wN[0]*wU0 + wN[1]*wV0 < 0) wN = [-wN[0], -wN[1]];                 // ให้ชี้ออกนอกวง
+      }
+      var rTopA = function(al){
+        if(taper){
+          var tu = Math.max(0, Math.min(1, (al - a0)/(a1 - a0))), trb = innerR + thickAt(blendAt(Math.PI/2 + al));
+          return Math.max(trb + (Rtop - trb)*Math.pow(1 - tu, tPow), rBot + 0.3);
+        }
+        if(wedge){
+          if(al <= a0) return Rtop;
+          var dn = wN[0]*Math.sin(al) + wN[1]*Math.cos(al);
+          if(dn < 1e-4) return rBot + 0.3;
+          return Math.max(Math.min((wN[0]*wU0 + wN[1]*wV0)/dn, Rtop), rBot + 0.3);
+        }
+        var sn = Math.sin(al), rv = Rtop;
+        if(sn > 1e-4) rv = Math.min(Rtop, xOut/sn);
+        return Math.max(rv, rBot + 0.3);
+      };
+      var lipA = (wedge || taper) ? 0.01 : 0.02, lipB = (wedge || taper) ? 0 : 0.03;              // ขอบแผ่นกว้างกว่าตัวเรือนเล็กน้อย (ลิ่มเกือบเสมอข้าง)
+      var hwA = function(al){return widthAt(blendAt(Math.PI/2+al))/2 + lipA + lipB*(1-smooth((al-a0)/(a1-a0)));};
+      var posAt = function(sdv, al, rv, zv){var th3 = Math.PI/2 + sdv*al; return [rv*Math.cos(th3), rv*Math.sin(th3), zv];};
+      var gridM = function(na, nb, Pf, Nf){
+        var gp = [], gn = [], gi = [], ia, jb, pt, nv, qq;
+        for(ia=0; ia<=na; ia++) for(jb=0; jb<=nb; jb++){
+          pt = Pf(ia/na, jb/nb); nv = Nf(ia/na, jb/nb);
+          gp.push(pt[0],pt[1],pt[2]); gn.push(nv[0],nv[1],nv[2]);
+        }
+        for(ia=0; ia<na; ia++) for(jb=0; jb<nb; jb++){
+          qq = ia*(nb+1)+jb;
+          gi.push(qq, qq+nb+1, qq+nb+2, qq, qq+nb+2, qq+1);
+        }
+        return {pos:gp, nor:gn, idx:gi};
+      };
+      var sdb, zb, eb;
+      for(sdb=-1; sdb<=1; sdb+=2){
+        /* ผิวข้าง 2 ด้าน (z = ±) */
+        for(zb=-1; zb<=1; zb+=2) parts.push(gridM(18, 4, function(uu, vv){
+          var al = a0 + (a1-a0)*uu;
+          return posAt(sdb, al, rBot + (rTopA(al)-rBot)*vv, zb*hwA(al));
+        }, function(){return [0, 0, zb];}));
+        /* ผิวบน/ขอบนอก (ช่วงโค้ง Rtop = ผิวรองหัว · ช่วงตั้ง = ขอบนอกตามเส้นเจ้าของ) */
+        parts.push(gridM(18, 1, function(uu, vv){
+          var al = a0 + (a1-a0)*uu;
+          return posAt(sdb, al, rTopA(al), (2*vv-1)*hwA(al));
+        }, function(uu){
+          var al = a0 + (a1-a0)*uu, th4 = Math.PI/2 + sdb*al;
+          if(wedge && al > a0) return [-sdb*wN[0], wN[1], 0];
+          if(taper && al > a0){                                               // normal ของโค้ง: ต่างค่าเชิงตัวเลขของ r(α) ในพิกัด (u,v)
+            var tr = rTopA(al), tdr = (rTopA(Math.min(al + 0.01, a1)) - rTopA(Math.max(al - 0.01, a0)))/(Math.min(al + 0.01, a1) - Math.max(al - 0.01, a0));
+            var tTu = tdr*Math.sin(al) + tr*Math.cos(al), tTv = tdr*Math.cos(al) - tr*Math.sin(al), tL = Math.sqrt(tTu*tTu + tTv*tTv) || 1;
+            return [-sdb*(-tTv/tL), tTu/tL, 0];
+          }
+          return rTopA(al) < Rtop - 1e-6 ? [-sdb, 0, 0] : [Math.cos(th4), Math.sin(th4), 0];
+        }));
+        /* หน้าตัดปลาย 2 ด้าน (eb=0 ด้านหันเข้าแกลเลอรี · eb=1 ด้านลาดจม) */
+        for(eb=0; eb<=1; eb++) parts.push(gridM(1, 1, function(uu, vv){
+          var al = eb ? a1 : a0;
+          return posAt(sdb, al, rBot + (rTopA(al)-rBot)*uu, (2*vv-1)*hwA(al));
+        }, function(){
+          var al = eb ? a1 : a0, th5 = Math.PI/2 + sdb*al, sgE = eb ? -1 : 1;
+          return [sgE*sdb*Math.sin(th5), -sgE*sdb*Math.cos(th5), 0];
+        }));
+      }
+      /* กรอบสันนูน + ลาย S นูน ในกรอบ บนผิวข้างก้านรับข้างทั้ง 4 ผิว (2 ปลาย x 2 ด้าน) */
+      if(p.shoulder === "scroll_relief"){
+        var rp0 = innerR + p.panelBotMm, rp1 = rp0 + p.panelHMm, ap0 = a0 + 0.08;
+        var ap1 = ap0 + p.panelLenMm/((rp0+rp1)/2);
+        rp1 = Math.min(rp1, rTopA(ap1) - 0.25);                                // ไม่ให้กรอบชนเพดานก้าน
+        if(ap1 > a1 - 0.05 || rp1 - rp0 < 0.8){
+          notes.push("ก้านรับข้างเล็กเกินจะวางกรอบลาย — ข้ามกรอบ");
+        } else {
+          var rf = p.panelFrameMm/2, rws = p.reliefWireMm/2, rcen = (rp0+rp1)/2, acen = (ap0+ap1)/2;
+          var As2 = (rp1-rp0)/2 - p.panelFrameMm - 0.08 - rws;                 // ครึ่งสูงที่ใช้ได้ของลาย S
+          var pxs = (p.panelLenMm - 2*p.panelFrameMm - 0.24)/2;                // ระยะห่างม้วน S 2 ม้วน
+          if(p.panelFrameMm < 0.4) notes.push("สันกรอบ " + p.panelFrameMm + " mm ต่ำกว่า ~0.4 mm — เสี่ยงหล่อไม่ติด ต้องให้ช่างหล่อยืนยัน");
+          var mapP = function(sdv, al, rv, zsv, lift){return posAt(sdv, al, rv, zsv*(hwA(al)+lift));};
+          var egs = [[ap0,rp0,ap1,rp0],[ap0,rp1,ap1,rp1],[ap0,rp0,ap0,rp1],[ap1,rp0,ap1,rp1]];
+          var chs2 = As2 > 0.15 ? scrollChain(2, pxs, As2, Math.min(p.reliefRadiusMm, As2*0.95), 0.9, 0.3, pxs/2, 0.2) : [];
+          var sdp, zsp;
+          for(sdp=-1; sdp<=1; sdp+=2) for(zsp=-1; zsp<=1; zsp+=2){
+            egs.forEach(function(eg){
+              var nst = (eg[1] === eg[3]) ? 8 : 4, ep = [], es;
+              for(es=0; es<=nst; es++) ep.push(mapP(sdp, eg[0]+(eg[2]-eg[0])*es/nst, eg[1]+(eg[3]-eg[1])*es/nst, zsp, 0));
+              parts.push(tube(ep, fill(ep.length, rf), 6));
+            });
+            chs2.forEach(function(path){
+              var sp3 = path.map(function(q3){return mapP(sdp, acen + q3[0]/rcen, rcen + q3[1], zsp, 0.02);});
+              parts.push(tube(sp3, fill(sp3.length, rws), 6));
+            });
+          }
+        }
+      }
+    }
+  } else if(p.setting === "channel"){
+    /* channel: ไม่มีเขี้ยว/เม็ดเสริม — ผนังรางเป็นส่วนของตัวเรือน (สร้างในขั้นตัวเรือนด้านบน) */
+  } else {
+    /* shared_bead: เม็ดกลมเล็ก 2 เม็ดต่อช่องระหว่างพลอย (ซ้ายขวาของแหวน) + ที่หัวท้ายถ้าเปิด */
+    var rb = Math.max(rp, 0.32), zb = rg*0.74, Rb = Rout + Math.max(0.12, head-0.05);
+    for(i=0;i<=n;i++){
+      if(!p.prongAtEnds && (i===0 || i===n)) continue;
+      var pm = Math.PI/2 + ((n-1)/2 - (i-0.5))*dphi;
+      for(var s2=-1; s2<=1; s2+=2) parts.push(sphere([Rb*Math.cos(pm), Rb*Math.sin(pm), s2*zb], rb, 6, 10));
+    }
+  }
+  /* ---- ลายก้นหอยนูนบนไหล่: เส้นก้นหอยต่อเนื่องแปะบนด้านข้างตัวเรือนทั้ง 2 ด้านของแต่ละไหล่ ยกจากผิว ~ reliefWireMm/2 ----
+     (เป็นเส้นหลอดกลมวางบนผิว ไม่ใช่การแกะลึก — พอให้เห็นลายและไม่หนักเครื่อง) */
+  if(p.shoulder === "scroll_relief" && !blockBuilt){
+    var rw =p.reliefWireMm/2, pS = p.reliefPitchMm, cS = Math.max(2, Math.round(p.reliefCount));
+    var halfL = (cS-1)/2*pS + pS/2, Rs = innerR + T/2, sd, zs;
+    for(sd=-1; sd<=1; sd+=2){
+      var thC = Math.PI/2 + sd*(rowHalf + 0.10 + halfL/Rs);               // กึ่งกลางลาย เริ่มพ้นปลายแถวพลอยเล็กน้อย
+      var As = thickAt(blendAt(thC))/2 - p.cornerMm - rw;                 // สูงที่ใช้ได้บนผิวข้างเรียบ
+      if(As < 0.12){notes.push("ตัวเรือนบางเกินไป — ข้ามลายนูนบนไหล่"); break;}
+      var chs = scrollChain(cS, pS, As, Math.min(p.reliefRadiusMm, As*0.95), 0.9, 0.3, pS/2, 0.2);
+      for(zs=-1; zs<=1; zs+=2) chs.forEach(function(path){
+        var rp2 = path.map(function(q){
+          var th2 = thC + sd*q[0]/Rs, bl2 = blendAt(th2), r2 = innerR + thickAt(bl2)/2 + q[1];
+          return [r2*Math.cos(th2), r2*Math.sin(th2), zs*widthAt(bl2)/2];
+        });
+        parts.push(tube(rp2, fill(rp2.length, rw), 6));
+      });
+    }
+  }
+  var metal = finalize(merge(parts));
+
+  /* ---- พลอยกลม: flat facet 8 ส่วนมงกุฎ (table + star + kite + upper girdle) + pavilion 16 ส่วน ---- */
+  function buildGem(fr){
+    var rt = 0.57*rg, rs = 0.80*rg;
+    var ys = hc*(1 - (rs*Math.cos(Math.PI/8) - rt)/(rg - rt));      // ความสูง star ให้ kite เป็นระนาบ
+    var G = fr.G, uu = fr.u, tt = fr.t;
+    function W(r, ang, y){
+      var x = r*Math.cos(ang), z = r*Math.sin(ang);
+      return [G[0]+tt[0]*x+uu[0]*y, G[1]+tt[1]*x+uu[1]*y, G[2]+tt[2]*x+uu[2]*y+z];
+    }
+    var C0 = W(0,0,-gT-hp*0.35), pos = [], nor = [], idx = [];
+    function tri(A,B,C){
+      var nn = norm(cross(sub(B,A), sub(C,A)));
+      var mm = [(A[0]+B[0]+C[0])/3-C0[0], (A[1]+B[1]+C[1])/3-C0[1], (A[2]+B[2]+C[2])/3-C0[2]];
+      if(dot(nn,mm) < 0) nn = [-nn[0],-nn[1],-nn[2]];
+      var b0 = pos.length/3;
+      pos.push(A[0],A[1],A[2], B[0],B[1],B[2], C[0],C[1],C[2]);
+      nor.push(nn[0],nn[1],nn[2], nn[0],nn[1],nn[2], nn[0],nn[1],nn[2]);
+      idx.push(b0,b0+1,b0+2);
+    }
+    var Tp = [], Sp = [], Gt = [], Gb = [], kk;
+    for(kk=0;kk<8;kk++){Tp.push(W(rt, kk*Math.PI/4, hc)); Sp.push(W(rs, (kk+0.5)*Math.PI/4, ys));}
+    for(kk=0;kk<16;kk++){Gt.push(W(rg, kk*Math.PI/8, 0)); Gb.push(W(rg, kk*Math.PI/8, -gT));}
+    var top = W(0,0,hc), culet = W(0,0,-gT-hp);
+    for(kk=0;kk<8;kk++){
+      var k1 = (kk+1)%8, km = (kk+7)%8;
+      tri(top, Tp[kk], Tp[k1]);                                   // table
+      tri(Tp[kk], Tp[k1], Sp[kk]);                                // star
+      tri(Tp[kk], Sp[km], Gt[2*kk]); tri(Tp[kk], Gt[2*kk], Sp[kk]);   // kite (2 สามเหลี่ยมระนาบเดียวกัน)
+      tri(Sp[kk], Gt[2*kk], Gt[2*kk+1]);                          // upper girdle
+      tri(Sp[kk], Gt[2*kk+1], Gt[(2*kk+2)%16]);
+    }
+    for(kk=0;kk<16;kk++){
+      var g1 = (kk+1)%16;
+      tri(Gt[kk], Gt[g1], Gb[g1]); tri(Gt[kk], Gb[g1], Gb[kk]);   // girdle
+      tri(culet, Gb[kk], Gb[g1]);                                 // pavilion
+    }
+    return {pos:new Float32Array(pos), nor:new Float32Array(nor), idx:new Uint16Array(idx)};
+  }
+  var gems = [];
+  for(i=0;i<n;i++) gems.push({center:frames[i].G.slice(), normal:frames[i].u.slice(), radiusMm:rg, mesh:buildGem(frames[i])});
+
+  var vtx = metal.pos.length/3;
+  gems.forEach(function(g){vtx += g.mesh.pos.length/3;});
+  if(vtx > 60000) notes.push("จุดยอดรวม " + vtx + " เกิน ~60,000 — อาจช้าบนมือถือรุ่นล่าง");
+
+  return {
+    metal: metal, gems: gems, params: p,
+    info: {girdleRadiusMm:Rg, headEffMm:head, wallMm:chWall, channelDepthMm:chD, pitchMm:pitch, spanDeg:spanDeg, outerRadiusMm:Rout, vertexCount:vtx, notes:notes}
+  };
+}
+
+/* =====================================================================
+   2b) แบบที่ 7 "แหวนไขว้ พลอยไข่ 2 เม็ด" (bypass) [ต้องยืนยัน: ชื่อแบบ]
+       อ่านจากรูปถ่ายถือมือ 5 มุม ไม่มีไม้บรรทัด -> ทุกค่าเป็นค่าประมาณ · น้ำหนัก/ขนาดพลอยจริงยังไม่มี [ต้องยืนยัน]
+       ไม่ใช่แหวนแถว: ก้านเป็นเกลียวเกิน 1 รอบ ปลาย 2 ข้างซ้อนกันที่หัว เยื้องกันตามแกนนิ้ว (z) ข้างละ 1 เม็ด
+       หน่วย มม. ทั้งหมด · ตำแหน่งพลอย 1 = ด้านบนในมุมหน้า (z ลบ) · ตำแหน่ง 2 = ด้านล่าง (z บวก)
+   ===================================================================== */
+var BYPASS2 = {
+  setting: "bypass",
+  stoneCount: 2,           // จำนวนพลอยไข่ (สีเปลี่ยนได้) · CZ เล็ก 2 เม็ดแยกต่างหาก เป็น CZ ขาวตายตัว
+  innerDiaMm: 17.2,        // ไซซ์อ้างอิงเดียวกับแบบอื่น (EU 54) ไม่ใช่ไซซ์จริงของชิ้น — รอวัดจริง
+  stoneMm: 7,              // ความยาวแกนยาวพลอยไข่ (ใช้เฟรมกล้อง) = ovalLongMm
+  ovalLongMm: 7,           // เจ้าของให้ 12 พ.ย. (ไม่ใช่ค่าประมาณ): พลอยไข่ ยาว 7 mm
+  ovalShortMm: 5,          // เจ้าของให้ 12 พ.ย. (ไม่ใช่ค่าประมาณ): กว้าง 5 mm
+  ovalTiltDeg: 20,         // ประมาณจากรูป — รอวัดจริง (แกนยาวเอียงจากแนวก้าน ± เม็ดละทิศ วางเยื้องทแยง)
+  stoneZMm: 2.8,           // ประมาณจากรูป — รอวัดจริง (ศูนย์กลางพลอยห่างแกนนิ้วข้างละเท่านี้ = แกนสั้น 5 mm เว้นช่อง ~0.6 mm ให้เตย)
+  stoneXOffMm: 0.9,        // ประมาณจากรูป — รอวัดจริง (เม็ดบนเยื้องไปทางขวา เม็ดล่างเยื้องซ้าย ตามรูป 3)
+  gapMm: 0.6,              // ช่องว่างขอบพลอย 2 เม็ดตามแกนนิ้ว (แสดงในแผงเท่านั้น)
+  headHeightMm: 2.6,       // ประมาณจากรูป — รอวัดจริง (ขอบเอวพลอยสูงกว่าผิวก้าน · ถูกบังคับขั้นต่ำให้ culet พ้นผิว 0.25 mm = 2.58 mm สำหรับพลอย 7×5)
+  bandWidthMm: 3.0,        // ประมาณจากรูป — รอวัดจริง (กว้างก้านที่หัว · ปรับเพื่อให้น้ำหนักโมเดลใกล้ 3.2 g ของเจ้าของ)
+  bandWidthBackMm: 2.2,    // ประมาณจากรูป — รอวัดจริง (กว้างก้านด้านหลังนิ้ว)
+  bandThickMm: 2.3,        // ประมาณจากรูป — รอวัดจริง (หนาก้านที่หัว หน้าตัดวงรี)
+  bandThickBackMm: 1.6,    // ประมาณจากรูป — รอวัดจริง (หนาก้านด้านหลัง)
+  mountMm: 0.75,           // ประมาณจากรูป — รอวัดจริง (ถ้วยรองใต้พลอย = สัดส่วนของรัศมีพลอยที่ฐาน · ปลายบน 0.55)
+  tipOffsetMm: 1.6,        // ประมาณจากรูป — รอวัดจริง (ปลายก้านแต่ละข้างเลยกึ่งกลางหัวไปเท่านี้ = ปลาย 2 ข้างซ้อนกัน ~3.2 mm)
+  rampRad: 2.0,            // ประมาณจากรูป — รอวัดจริง (ระยะที่ก้านเลื่อนจากแนวพลอยเข้ากลางแกนนิ้ว เป็นเรเดียน)
+  prongMm: 0.7,            // ประมาณจากรูป — รอวัดจริง (เตย 4 เขี้ยว/เม็ดไข่ สูงเรียว · เท่าเกณฑ์หล่อเงิน 925 ~0.7 mm)
+  prongOverMm: 0.4,        // ประมาณจากรูป — รอวัดจริง (ปลายเตยสูงกว่าขอบเอวพลอย)
+  czMm: 1.5,               // ประมาณจากรูป — รอวัดจริง (CZ กลมเล็ก 2 เม็ด)
+  czProngMm: 0.4           // ประมาณจากรูป — รอวัดจริง (เตย 3 ต้น/CZ เม็ดเล็ก เสี่ยงหล่อมาก)
+};
+
+/* buildBypassRing(params) — pure · คืนโครงเดียวกับ buildRowRing: { metal, gems[], info, params }
+   gems[0..1] = พลอยไข่ (สีเปลี่ยนได้) · gems[2..3] = CZ เล็ก (ตำแหน่ง 3-4 ไม่มีแถวเลือกสี = CZ ขาวตายตัว)
+   ตั้งใจ "ไม่แตะ" buildRowRing (helper ของมันอยู่ใน closure) จึงสำเนา helper ที่ใช้ (tube/merge/gem) ไว้ในฟังก์ชันนี้ — แบบเดิมจึงไม่เปลี่ยน */
+function buildBypassRing(params){
+  var p = {}, k, notes = [], i, j, q;
+  for(k in params) p[k] = params[k];
+  function sub(a,b){return [a[0]-b[0],a[1]-b[1],a[2]-b[2]];}
+  function cross(a,b){return [a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]];}
+  function dot(a,b){return a[0]*b[0]+a[1]*b[1]+a[2]*b[2];}
+  function norm(a){var l=Math.sqrt(dot(a,a))||1;return [a[0]/l,a[1]/l,a[2]/l];}
+  function smooth(x){x=Math.max(0,Math.min(1,x));return x*x*(3-2*x);}
+  function tube(path, radii, seg){
+    var L = path.length, pos = [], nor = [], idx = [], a, b, Tn, ref, d0, Nn, Bn, an, c, s, nx, ny, nz, ii, jj;
+    for(ii=0; ii<L; ii++){
+      a = path[ii>0?ii-1:0]; b = path[ii<L-1?ii+1:L-1];
+      Tn = norm(sub(b,a)); ref = [0,0,1];
+      if(Math.abs(dot(Tn,ref)) > 0.9) ref = [1,0,0];
+      d0 = dot(ref,Tn);
+      Nn = norm([ref[0]-Tn[0]*d0, ref[1]-Tn[1]*d0, ref[2]-Tn[2]*d0]);
+      Bn = cross(Tn,Nn);
+      for(jj=0; jj<seg; jj++){
+        an = 2*Math.PI*jj/seg; c = Math.cos(an); s = Math.sin(an);
+        nx = c*Nn[0]+s*Bn[0]; ny = c*Nn[1]+s*Bn[1]; nz = c*Nn[2]+s*Bn[2];
+        pos.push(path[ii][0]+radii[ii]*nx, path[ii][1]+radii[ii]*ny, path[ii][2]+radii[ii]*nz);
+        nor.push(nx,ny,nz);
+      }
+    }
+    for(ii=0; ii<L-1; ii++) for(jj=0; jj<seg; jj++){
+      var j2 = (jj+1)%seg, q0 = ii*seg+jj, q1 = ii*seg+j2, q2 = (ii+1)*seg+j2, q3 = (ii+1)*seg+jj;
+      idx.push(q0,q1,q2, q0,q2,q3);
+    }
+    return {pos:pos, nor:nor, idx:idx};
+  }
+  function merge(parts){
+    var P = [], N = [], I = [], off = 0, m, x, pi;
+    for(pi=0; pi<parts.length; pi++){
+      m = parts[pi];
+      for(x=0; x<m.pos.length; x++){P.push(m.pos[x]); N.push(m.nor[x]);}
+      for(x=0; x<m.idx.length; x++) I.push(m.idx[x]+off);
+      off += m.pos.length/3;
+    }
+    return {pos:P, nor:N, idx:I};
+  }
+  /* พลอยเหลี่ยม: โครงเดียวกับ buildGem ของ buildRowRing (crown 8 ส่วน + pavilion 16 ส่วน) แต่ยืด 2 แกน (A ตามแกนยาว · B ตามแกนสั้น) และหมุน ph ในระนาบหน้าพลอย */
+  function ovalGem(fr, A, B, ph, hc, gT, hp){
+    var rt = 0.57, rs = 0.80, ys = hc*(1 - (rs*Math.cos(Math.PI/8) - rt)/(1 - rt)), cph = Math.cos(ph), sph = Math.sin(ph);
+    function W(r, ang, y){
+      var xl = A*r*Math.cos(ang), zl = B*r*Math.sin(ang), x = xl*cph - zl*sph, z = xl*sph + zl*cph;
+      return [fr.G[0]+fr.t[0]*x+fr.u[0]*y, fr.G[1]+fr.t[1]*x+fr.u[1]*y, fr.G[2]+fr.t[2]*x+fr.u[2]*y+z];
+    }
+    var C0 = W(0,0,-gT-hp*0.35), pos = [], nor = [], idx = [];
+    function tri(P1,P2,P3){
+      var nn = norm(cross(sub(P2,P1), sub(P3,P1)));
+      var mm = [(P1[0]+P2[0]+P3[0])/3-C0[0], (P1[1]+P2[1]+P3[1])/3-C0[1], (P1[2]+P2[2]+P3[2])/3-C0[2]];
+      if(dot(nn,mm) < 0) nn = [-nn[0],-nn[1],-nn[2]];
+      var b0 = pos.length/3;
+      pos.push(P1[0],P1[1],P1[2], P2[0],P2[1],P2[2], P3[0],P3[1],P3[2]);
+      nor.push(nn[0],nn[1],nn[2], nn[0],nn[1],nn[2], nn[0],nn[1],nn[2]);
+      idx.push(b0,b0+1,b0+2);
+    }
+    var Tp = [], Sp = [], Gt = [], Gb = [], kk;
+    for(kk=0;kk<8;kk++){Tp.push(W(rt, kk*Math.PI/4, hc)); Sp.push(W(rs, (kk+0.5)*Math.PI/4, ys));}
+    for(kk=0;kk<16;kk++){Gt.push(W(1, kk*Math.PI/8, 0)); Gb.push(W(1, kk*Math.PI/8, -gT));}
+    var top = W(0,0,hc), culet = W(0,0,-gT-hp);
+    for(kk=0;kk<8;kk++){
+      var k1 = (kk+1)%8, km = (kk+7)%8;
+      tri(top, Tp[kk], Tp[k1]);
+      tri(Tp[kk], Tp[k1], Sp[kk]);
+      tri(Tp[kk], Sp[km], Gt[2*kk]); tri(Tp[kk], Gt[2*kk], Sp[kk]);
+      tri(Sp[kk], Gt[2*kk], Gt[2*kk+1]);
+      tri(Sp[kk], Gt[2*kk+1], Gt[(2*kk+2)%16]);
+    }
+    for(kk=0;kk<16;kk++){
+      var g1 = (kk+1)%16;
+      tri(Gt[kk], Gt[g1], Gb[g1]); tri(Gt[kk], Gb[g1], Gb[kk]);
+      tri(culet, Gb[kk], Gb[g1]);
+    }
+    return {pos:new Float32Array(pos), nor:new Float32Array(nor), idx:new Uint16Array(idx)};
+  }
+
+  var innerR = p.innerDiaMm/2, parts = [], gems = [];
+  var dth = p.tipOffsetMm/(innerR + p.bandThickMm), T = 2*Math.PI + 2*dth, sgn = -1;   // ก้านเป็นเกลียว: เริ่มซ้ายของยอดวง วิ่งตามเข็มเกิน 1 รอบ ไปจบขวาของยอดวง
+  function zAt(t){                                   // เลื่อนตามแกนนิ้ว: ที่ปลายอยู่ใต้พลอย (±stoneZ) แล้วค่อยๆ เข้ากลางแกนนิ้วด้านหลัง
+    if(t <= T/2) return sgn*p.stoneZMm*(1 - smooth(t/p.rampRad));
+    return -sgn*p.stoneZMm*(1 - smooth((T-t)/p.rampRad));
+  }
+  function bl(t){return smooth((Math.min(t, T-t) - 0.5)/1.4);}                          // 0 = ที่หัว · 1 = ด้านหลัง
+  function hwAt(t){return (p.bandWidthMm + (p.bandWidthBackMm - p.bandWidthMm)*bl(t))/2;}
+  function htAt(t){return (p.bandThickMm + (p.bandThickBackMm - p.bandThickMm)*bl(t))/2;}
+  function thAt(t){return Math.PI/2 + dth - t;}
+  function centerAt(t){var r = innerR + htAt(t), th = thAt(t); return [r*Math.cos(th), r*Math.sin(th), zAt(t)];}   // ผิวในคงที่ที่ innerR เสมอ
+
+  /* ---- ก้าน: กวาดหน้าตัดวงรีตามเส้นเกลียว · ปลาย 2 ข้างปิดเป็นโดมครึ่งวงรี ---- */
+  var M = 16, ts = [], scs = [], ph0, LcRad = 1.1/(innerR + p.bandThickMm/2), NMID = 170;
+  for(q=0;q<=8;q++){ph0 = (Math.PI/2)*q/8; ts.push(LcRad*(1-Math.cos(ph0))); scs.push(Math.sin(ph0));}
+  for(q=1;q<NMID;q++){ts.push(LcRad + (T-2*LcRad)*q/NMID); scs.push(1);}
+  for(q=8;q>=0;q--){ph0 = (Math.PI/2)*q/8; ts.push(T - LcRad*(1-Math.cos(ph0))); scs.push(Math.sin(ph0));}
+  var sP = [], sN = [], sI = [], R2 = ts.length;
+  for(i=0;i<R2;i++){
+    var tt = ts[i], c0 = centerAt(tt), cp = centerAt(Math.min(T, tt+0.01)), cm = centerAt(Math.max(0, tt-0.01));
+    var Tn = norm(sub(cp, cm)), thx = thAt(tt), er = [Math.cos(thx), Math.sin(thx), 0];
+    var side = norm(cross(Tn, er)), rd = norm(cross(side, Tn));
+    if(dot(rd, er) < 0) rd = [-rd[0], -rd[1], -rd[2]];
+    var hw = hwAt(tt), ht = htAt(tt), sc0 = scs[i];
+    for(j=0;j<M;j++){
+      var an = 2*Math.PI*j/M, ca = Math.cos(an), sa = Math.sin(an);
+      sP.push(c0[0] + side[0]*hw*sc0*ca + rd[0]*ht*sc0*sa, c0[1] + side[1]*hw*sc0*ca + rd[1]*ht*sc0*sa, c0[2] + side[2]*hw*sc0*ca + rd[2]*ht*sc0*sa);
+      var nn = norm([side[0]*ca/hw + rd[0]*sa/ht, side[1]*ca/hw + rd[1]*sa/ht, side[2]*ca/hw + rd[2]*sa/ht]);
+      sN.push(nn[0], nn[1], nn[2]);
+    }
+  }
+  for(i=0;i<R2-1;i++) for(j=0;j<M;j++){
+    var j2 = (j+1)%M, a0 = i*M+j, a1 = i*M+j2, a2 = (i+1)*M+j2, a3 = (i+1)*M+j;
+    sI.push(a0, a1, a2, a0, a2, a3);
+  }
+  parts.push({pos:sP, nor:sN, idx:sI});
+
+  /* ---- พลอยไข่ 2 เม็ด + เตย 4 เขี้ยว/เม็ด ---- */
+  var shortD = p.ovalShortMm, A = p.ovalLongMm/2, B = shortD/2, phi0 = p.ovalTiltDeg*Math.PI/180;
+  var hc = 0.16*shortD, gT = 0.035*shortD, hp = 0.43*shortD, rp = p.prongMm/2;
+  var topSh = innerR + p.bandThickMm;                                      // ผิวบนก้านที่หัว
+  var headEff = Math.max(p.headHeightMm, hp + gT + 0.25);
+  if(headEff > p.headHeightMm + 1e-9) notes.push("headHeightMm ต่ำเกินไป — ปรับเป็น " + headEff.toFixed(2) + " mm เพื่อให้ culet พ้นผิวก้าน");
+  var Rg = topSh + headEff;
+  if(p.prongMm < 0.7) notes.push("prongMm " + p.prongMm + " mm ต่ำกว่าเกณฑ์หล่อเงิน 925 (~0.7 mm) — ภาพนี้เพื่อเทียบรูปเท่านั้น");
+  if(p.czProngMm < 0.7) notes.push("เตย CZ เล็ก " + p.czProngMm + " mm เสี่ยงหล่อไม่ติด/หลุดมาก — ต้องให้ช่างยืนยัน");
+  function frameOf(th, r, zc){
+    var u = [Math.cos(th), Math.sin(th), 0], t = [Math.sin(th), -Math.cos(th), 0];
+    return {u:u, t:t, G:[u[0]*r, u[1]*r, zc]};
+  }
+  function loc(fr, x, h, z, ph){                                           // จุดในกรอบพลอย: x ตามแถว · h ตามแนวตั้งฉากหน้า · z ตามแกนนิ้ว · หมุน ph ในระนาบหน้า
+    var xr = x*Math.cos(ph) - z*Math.sin(ph), zr = x*Math.sin(ph) + z*Math.cos(ph);
+    return [fr.G[0]+fr.t[0]*xr+fr.u[0]*h, fr.G[1]+fr.t[1]*xr+fr.u[1]*h, fr.G[2]+fr.t[2]*xr+fr.u[2]*h+zr];
+  }
+  var stones = [{sx:p.stoneXOffMm, zc:sgn*p.stoneZMm, ph:phi0, cz:1}, {sx:-p.stoneXOffMm, zc:-sgn*p.stoneZMm, ph:-phi0, cz:-1}];
+  var h0 = (topSh - 0.5) - Rg, fs = [0, 0.3, 0.65, 1], angs = [1, 3, 5, 7];
+  stones.forEach(function(st){
+    var fr = frameOf(Math.PI/2 - st.sx/Rg, Rg, st.zc), ai, fi;
+    gems.push({center:fr.G.slice(), normal:fr.u.slice(), radiusMm:A, mesh:ovalGem(fr, A, B, st.ph, hc, gT, hp)});
+    /* ถ้วยรองใต้พลอย (mount): ตัวหัวทึบรูปกรวยวงรีตัดปลาย จากผิวก้านขึ้นไปถึงครึ่งความลึก pavilion — ให้เห็นฐานหัวใต้พลอยแบบรูป 4 + น้ำหนักเข้าช่วง */
+    (function(){
+      var hB = h0, hT = -(gT + 0.5*hp), sB = p.mountMm, sT = p.mountMm - 0.2, nR = 3, rr, jj, mp = [], mn = [], mi = [], aa, ff, ss, hh, cx, cz2, nl;
+      for(rr=0; rr<nR; rr++){
+        ff = rr/(nR-1); ss = sB + (sT - sB)*ff; hh = hB + (hT - hB)*ff;
+        for(jj=0; jj<16; jj++){
+          aa = 2*Math.PI*jj/16; cx = Math.cos(aa); cz2 = Math.sin(aa);
+          var pt = loc(fr, A*ss*cx, hh, B*ss*cz2, st.ph);
+          mp.push(pt[0], pt[1], pt[2]);
+          nl = norm([cx*Math.cos(st.ph)/A - cz2*Math.sin(st.ph)/B, 0, cx*Math.sin(st.ph)/A + cz2*Math.cos(st.ph)/B]);
+          var nw = [fr.t[0]*nl[0] + fr.u[0]*0.35, fr.t[1]*nl[0] + fr.u[1]*0.35, fr.t[2]*nl[0] + nl[2]];
+          nw = norm(nw); mn.push(nw[0], nw[1], nw[2]);
+        }
+      }
+      for(rr=0; rr<nR-1; rr++) for(jj=0; jj<16; jj++){
+        var jn = (jj+1)%16, b0 = rr*16+jj, b1 = rr*16+jn, b2 = (rr+1)*16+jn, b3 = (rr+1)*16+jj;
+        mi.push(b0, b1, b2, b0, b2, b3);
+      }
+      var cc = loc(fr, 0, hT, 0, st.ph), cb = mp.length/3;                  // ฝาบนของถ้วย (พัด)
+      mp.push(cc[0], cc[1], cc[2]); mn.push(fr.u[0], fr.u[1], fr.u[2]);
+      for(jj=0; jj<16; jj++){
+        var tp2 = (nR-1)*16 + jj; mp.push(mp[tp2*3], mp[tp2*3+1], mp[tp2*3+2]); mn.push(fr.u[0], fr.u[1], fr.u[2]);
+        mi.push(cb, cb+1+jj, cb+1+((jj+1)%16));
+      }
+      parts.push({pos:mp, nor:mn, idx:mi});
+    })();
+    for(ai=0; ai<4; ai++){
+      var al = angs[ai]*Math.PI/4, ex = (A + 0.6*rp)*Math.cos(al), ez = (B + 0.6*rp)*Math.sin(al), path = [];
+      for(fi=0; fi<fs.length; fi++){
+        var sc1 = 0.35 + 0.65*Math.pow(fs[fi], 0.8);                       // เตยลู่เข้าหาแกนพลอยที่โคน (เหมือนตะกร้า) แล้วบานออกถึงขอบเอว
+        path.push(loc(fr, ex*sc1, h0*(1-fs[fi]), ez*sc1, st.ph));
+      }
+      path.push(loc(fr, ex*0.93, p.prongOverMm, ez*0.93, st.ph));
+      parts.push(tube(path, [1.25*rp, 1.05*rp, 0.9*rp, 0.8*rp, 0.3*rp], 8));
+    }
+  });
+
+  /* ---- CZ กลมเล็ก 2 เม็ด: ติดบนก้านข้างพลอยไข่ คนละฝั่ง (เม็ดบนทางขวา เม็ดล่างทางซ้าย) CZ ขาวตายตัว ---- */
+  var czR = p.czMm/2, hcC = 0.16*p.czMm, gTc = 0.035*p.czMm, hpc = 0.43*p.czMm, rc = p.czProngMm/2;
+  stones.forEach(function(st){
+    var fr, ai, hBase;
+    if(st.cz > 0){
+      /* CZ ของพลอยบน (ฟ้า): ไม่อยู่บนก้าน — เกาะข้างหัวพลอยไข่ ยื่นออกด้านนอกตามแกนนิ้ว (ฝั่งตรงข้ามพลอยอีกเม็ด) สูงระดับขอบเอวพลอยใหญ่
+         มีแขนเงินสั้นเชื่อมจากถ้วยรองใต้พลอยใหญ่ (ไม่ลอย) + เตยเล็กของตัวเอง 3 ต้น (เจ้าของแก้ 12 พ.ย.) · ก้านฝั่งนี้วิ่งใต้พลอยตามปกติ */
+      var sf = frameOf(Math.PI/2 - st.sx/Rg, Rg, st.zc), sgz = (st.zc < 0) ? -1 : 1;
+      var xo = 0.45*A, zo = sgz*(B + czR + 0.25);
+      fr = {u:sf.u, t:sf.t, G:loc(sf, xo, 0, zo, st.ph)};
+      hBase = -0.8;
+      parts.push(tube([loc(sf, xo*0.5, -1.5, sgz*1.0, st.ph), loc(sf, xo*0.9, -1.1, zo*0.8, st.ph), loc(sf, xo, -0.8, zo, st.ph)], [0.55, 0.5, 0.45], 8));
+    } else {
+      /* CZ ของพลอยล่าง (เหลือง): อยู่บนก้านรอบสอง (เจ้าของยืนยันว่าถูกแล้ว) */
+      var xc = st.sx + st.cz*(A + czR + 0.35), th = Math.PI/2 - xc/(innerR + p.bandThickMm);
+      var tp = Math.PI/2 + dth - th + 2*Math.PI;
+      fr = frameOf(th, innerR + 2*htAt(tp) + 0.2, zAt(tp));
+      hBase = -0.5;
+    }
+    gems.push({center:fr.G.slice(), normal:fr.u.slice(), radiusMm:czR, mesh:ovalGem(fr, czR, czR, 0, hcC, gTc, hpc)});
+    for(ai=0; ai<3; ai++){
+      var al = (90 + 120*ai)*Math.PI/180, ex = (czR + 0.15)*Math.cos(al), ez = (czR + 0.15)*Math.sin(al);
+      parts.push(tube([loc(fr, ex*0.5, hBase, ez*0.5, 0), loc(fr, ex, 0, ez, 0), loc(fr, ex*0.85, 0.12, ez*0.85, 0)], [1.3*rc, rc, 0.5*rc], 6));
+    }
+  });
+
+  var mm = merge(parts);
+  if(mm.pos.length/3 > 65535) notes.push("mesh เกิน 65535 vertex — ต้องใช้ index 32 บิต");
+  var metal = {pos:new Float32Array(mm.pos), nor:new Float32Array(mm.nor), idx:new Uint16Array(mm.idx)};
+  var vtx = metal.pos.length/3;
+  gems.forEach(function(g){vtx += g.mesh.pos.length/3;});
+  if(vtx > 60000) notes.push("จุดยอดรวม " + vtx + " เกิน ~60,000 — อาจช้าบนมือถือรุ่นล่าง");
+  return {
+    metal: metal, gems: gems, params: p,
+    info: {girdleRadiusMm:Rg, headEffMm:headEff, wallMm:0, channelDepthMm:0, pitchMm:2*p.stoneZMm, spanDeg:0, outerRadiusMm:Rg + hc, vertexCount:vtx, notes:notes}
+  };
+}
+
+/* =====================================================================
+   3) viewer WebGL1 ดิบ (ไม่มีไลบรารีภายนอก)
+   ===================================================================== */
+(function(){
+  var STONES = [
+    {name:"CZ ขาว",   rgb:[0.90,0.92,0.96], cz:true},
+    {name:"โกเมน",    rgb:[0.62,0.07,0.13]},
+    {name:"ซิทริน",    rgb:[0.96,0.62,0.10]},
+    {name:"บลูโทพาส", rgb:[0.22,0.58,0.95]},
+    {name:"เพริดอต",  rgb:[0.55,0.80,0.15]},
+    {name:"อเมทิสต์", rgb:[0.56,0.30,0.80]}
+  ];
+  var MODELS = {
+    trinity: {
+      title: 'TRINITY RING <small>(Big)</small>', params: TRINITY,
+      lede: "แหวนพลอยกลมเรียงแถว หนามเตย 4 เขี้ยวต่อเม็ด · ตัวเรือนเรียบขัดเงา — ลองเปลี่ยนสีพลอยทีละเม็ดแล้วลากหมุนดู"
+    },
+    scroll6: {
+      title: 'ก้นหอย 6 เม็ด <small>(ชื่อชั่วคราว)</small>', params: SCROLL6,
+      lede: "แหวนพลอยกลมเรียงแถว 6 เม็ด หัวยกมีหนามเตยเล็กใช้ร่วมระหว่างเม็ด · ผนังข้างหัวเป็นลายก้นหอยโปร่ง หัวแถวตั้งบนก้านรับข้างทึบทั้ง 2 ปลาย ด้านข้างก้านมีกรอบนูนและลาย S นูน ก้านเรียวลงด้านหลัง — ลองเปลี่ยนสีพลอยทีละเม็ดแล้วลากหมุนดู"
+    },
+    channel4: {
+      title: 'ฝังล็อค 4 เม็ด <small>(ชื่อชั่วคราว)</small>', params: CHANNEL4,
+      lede: "แหวนพลอยกลม 4 เม็ดเรียงในรางเดียว ผนังโลหะสองข้างหนีบขอบเอวพลอย ไม่มีเขี้ยว · ตัวเรือนเรียบ ผิวบนและด้านข้างเป็นระนาบ หัว-ท้ายแถวปิดทึบ หนาสุดใต้พลอยแล้วเรียวลงด้านหลัง — ลองเปลี่ยนสีพลอยทีละเม็ดแล้วลากหมุนดู"
+    },
+    channel6: {
+      title: 'ฝังล็อค 6 เม็ด <small>(ชื่อชั่วคราว)</small>', params: CHANNEL6,
+      lede: "แหวนพลอยกลม 6 เม็ดเรียงในรางเดียว ตระกูลเดียวกับแบบ 4 เม็ดแต่พลอยเล็กกว่า ผนังรางหนากว่าเมื่อเทียบพลอย แถวยาวพาดโค้งมากขึ้น · หัว-ท้ายแถวปิดทึบ ตัวเรือนเรียบ หนาสุดใต้พลอยแล้วเรียวลงด้านหลัง — ลองเปลี่ยนสีพลอยทีละเม็ดแล้วลากหมุนดู"
+    },
+    bar7: {
+      title: 'เตย 7 เม็ด <small>(ชื่อชั่วคราว)</small>', params: BAR7,
+      lede: "แหวนพลอยกลม 7 เม็ดเรียงแถวเดียว คั่นด้วยบาร์สี่เหลี่ยมขวางแถว (รวม 8 ซี่ รวมหัว-ท้าย) ช่องระหว่างบาร์โปร่ง มีเตยเล็กกลมที่ขอบข้างของแต่ละเม็ด · หัว-ท้ายแถวเป็นบล็อกไหล่ทึบผิวเรียบ ตัวเรือนหน้าแบนเรียวลงด้านหลัง — ลองเปลี่ยนสีพลอยทีละเม็ดแล้วลากหมุนดู"
+    },
+    bypass2: {
+      title: 'ไขว้ 2 เม็ด (ไข่) <small>(ชื่อชั่วคราว)</small>', params: BYPASS2,
+      lede: "แหวนไขว้ ปลายก้าน 2 ข้างซ้อนกันที่หัว เยื้องกันตามแกนนิ้ว แต่ละปลายรับพลอยทรงไข่ 1 เม็ด (เตย 4 เขี้ยวสูงเรียว) วางเยื้องทแยง มี CZ เล็กข้างละ 1 เม็ดที่ปลายก้านคนละฝั่ง · ก้านกลมมนเรียวบางลงด้านหลัง — เปลี่ยนสีได้เฉพาะพลอยไข่ 2 เม็ด (CZ เล็กเป็นสีขาวคงที่) แล้วลากหมุนดู"
+    },
+    small7: {
+      title: 'แถวเล็ก 7 เม็ด <small>(ชื่อชั่วคราว)</small>', params: SMALL7,
+      lede: "แหวนพลอยกลมเล็ก 7 เม็ดเรียงแถว ฝังเกือบเสมอผิวหัว มีเตยร่วมเล็กคั่นระหว่างเม็ด · หัวเป็นบล็อกผนังข้างแบนขัดเงา เจาะช่องรูปตัว D ใต้พลอยทุกเม็ด ปลายหัวตัดเกือบตั้งแล้วลิ่มสั้นลงบรรจบก้านบางเรียบ — ลองเปลี่ยนสีพลอยทีละเม็ดแล้วลากหมุนดู"
+    }
+  };
+  var cfg = {}, modelKey = "trinity";
+  var colorIdx = [0,0,0,0,0,0,0];      // สีต่อตำแหน่ง เก็บไว้เมื่อสลับจำนวนเม็ด
+  var ring = null, hi = -1;
+  function loadModel(key){
+    var m = MODELS[key], kk; modelKey = key; cfg = {};
+    for(kk in m.params) cfg[kk] = m.params[kk];
+    colorIdx = [0,0,0,0,0,0,0];
+    document.getElementById("ttl").innerHTML = m.title;
+    document.getElementById("lede").textContent = m.lede;
+    syncSegs();
+  }
+
+  var canvas = document.getElementById("c"), stage = document.getElementById("stage"), msg = document.getElementById("msg");
+  var reduce = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+
+  /* ---------- panel ---------- */
+  function hex(rgb){return "#"+rgb.map(function(v){var h=Math.round(v*255).toString(16);return h.length<2?"0"+h:h;}).join("");}
+  function buildRows(){
+    var box = document.getElementById("rows"), n = cfg.stoneCount;
+    box.innerHTML = "";
+    for(var i=0;i<n;i++){
+      (function(i){
+        var row = document.createElement("div"); row.className = "prow";
+        var side = cfg.setting==="bypass" ? (i===0 ? " (พลอยไข่ บน)" : " (พลอยไข่ ล่าง)") : (i===0 ? " (ซ้าย)" : (i===n-1 ? " (ขวา)" : ""));
+        row.innerHTML = '<div class="pn">ตำแหน่ง '+(i+1)+'<span>'+side+'</span></div><div class="sw"></div><div class="cn"></div>';
+        var sw = row.querySelector(".sw"), cn = row.querySelector(".cn");
+        function refresh(){
+          var bs = sw.children;
+          for(var b=0;b<bs.length;b++) bs[b].setAttribute("aria-pressed", b===colorIdx[i] ? "true" : "false");
+          cn.textContent = STONES[colorIdx[i]].name;
+        }
+        STONES.forEach(function(s, si){
+          var b = document.createElement("button"); b.type = "button";
+          b.style.background = hex(s.rgb); b.setAttribute("aria-label", "ตำแหน่ง "+(i+1)+" "+s.name);
+          b.addEventListener("click", function(){colorIdx[i] = si; refresh(); dirty = true;});
+          sw.appendChild(b);
+        });
+        row.addEventListener("mouseenter", function(){hi = i; dirty = true;});
+        row.addEventListener("mouseleave", function(){hi = -1; dirty = true;});
+        refresh(); box.appendChild(row);
+      })(i);
+    }
+  }
+  function buildSpec(){
+    var info = ring.info, sp = document.getElementById("spec");
+    function r(k,v){return '<div class="row"><span class="k">'+k+'</span><span class="v">'+v+'</span></div>';}
+    var sh = cfg.setting, prongTxt =
+      sh==="prong4" ? "Ø"+cfg.prongMm.toFixed(1)+" mm × 4/เม็ด <em>ประมาณ</em>" :
+      sh==="shared_prong" ? "Ø"+cfg.prongMm.toFixed(1)+" mm ร่วมระหว่างเม็ด 2 ต้น/ช่อง <em>ประมาณ</em>" :
+      sh==="bypass" ? "เตย Ø"+cfg.prongMm.toFixed(2)+" mm × 4/พลอยไข่ · CZ เล็ก เตย Ø"+cfg.czProngMm.toFixed(1)+" mm × 3 <em>ประมาณ</em>" :
+      sh==="window_head" ? "เตยร่วมเล็ก Ø"+cfg.prongMm.toFixed(2)+" mm ข้างละ 1 ต้น/ช่องระหว่างเม็ด <em>ประมาณ</em>" :
+      sh==="bar_prong" ? "เตยเล็กกลม Ø"+cfg.prongMm.toFixed(2)+" mm × 2/เม็ด (ข้างละ 1) + บาร์หนา "+cfg.barMm.toFixed(1)+" mm <em>ประมาณ</em>" :
+      sh==="channel" ? "ไม่มีเขี้ยว — ผนังรางข้างละ "+info.wallMm.toFixed(2)+" mm หนีบขอบเอว · ลึก "+info.channelDepthMm.toFixed(1)+" mm <em>ประมาณ</em>" :
+      "เม็ดกลม Ø"+Math.max(cfg.prongMm,0.64).toFixed(2)+" mm";
+    var thick = (cfg.bandThickBackMm===undefined) ? cfg.bandThickMm.toFixed(1) : cfg.bandThickMm.toFixed(1)+" → "+cfg.bandThickBackMm.toFixed(1);
+    var galTxt = (cfg.gallery==="scroll" && sh==="shared_prong") ? "ลายก้นหอยโปร่ง เส้น "+cfg.scrollWireMm.toFixed(2)+" mm <em>ประมาณ</em>" : "เรียบ/ไม่มี";
+    if(sh==="bar_prong") galTxt = "บาร์ขวาง "+(cfg.stoneCount+1)+" ซี่ ช่องระหว่างบาร์โปร่ง <em>ประมาณ</em>";
+    if(sh==="window_head") galTxt = "ผนังข้างแบน + ช่อง D ใต้พลอย "+cfg.stoneCount+" ช่อง กว้าง "+cfg.windowWMm.toFixed(1)+" mm <em>ประมาณ</em>";
+    var hasBlk = cfg.support==="block" && (sh==="shared_prong" || sh==="bar_prong" || sh==="window_head");
+    var shTxt = cfg.shoulder==="scroll_relief" ? (hasBlk ? "กรอบนูน + ลาย S นูน บนก้านรับข้าง <em>ประมาณ</em>" : "ลายก้นหอยนูน (ลายนูนตื้น) <em>ประมาณ</em>") : "เรียบ";
+    sp.innerHTML =
+      r("ไซซ์อ้างอิง","EU 54 · Ø ใน "+cfg.innerDiaMm.toFixed(1)+" mm")+
+      (sh==="bypass" ? r("พลอยไข่", cfg.ovalShortMm.toFixed(1)+"×"+cfg.ovalLongMm.toFixed(1)+" mm × 2 + CZ Ø"+cfg.czMm.toFixed(1)+" mm × 2 <em>ประมาณ</em>")
+                     : r("พลอย","Ø"+cfg.stoneMm.toFixed(1)+" mm × "+cfg.stoneCount+" <em>ประมาณ</em>"))+
+      r("ช่องห่างเม็ด",cfg.gapMm.toFixed(1)+" mm <em>ประมาณ</em>")+
+      r("ตัวเรือน กว้าง",cfg.bandWidthMm.toFixed(1)+" → "+cfg.bandWidthBackMm.toFixed(1)+" mm <em>ประมาณ</em>")+
+      r("ตัวเรือน หนา",thick+" mm <em>ประมาณ</em>")+
+      (sh==="channel" ? r("ผิวหน้าพลอย","ต่ำกว่าขอบผนัง "+(cfg.channelSinkMm===undefined?0.05:cfg.channelSinkMm).toFixed(2)+" mm <em>ประมาณ</em>")
+                      : r("ความสูงหัว",info.headEffMm.toFixed(1)+" mm <em>ประมาณ</em>"))+
+      r("เขี้ยว",prongTxt)+
+      r("ผนังข้างหัว",galTxt)+
+      (hasBlk ? r("ก้านรับข้าง","ก้านทึบหัว-ท้ายแถว กว้างเท่าตัวเรือน <em>ประมาณ</em>") : "")+
+      r("ไหล่แหวน",shTxt)+
+      r("จุดยอดรวม",info.vertexCount.toLocaleString("en-US")+" <em>เป้า &lt; 60,000</em>");
+    document.getElementById("warn").textContent = info.notes.join(" · ");
+  }
+  function setPressed(boxId, val){
+    var bs = document.getElementById(boxId).querySelectorAll("button");
+    for(var i=0;i<bs.length;i++) bs[i].setAttribute("aria-pressed", bs[i].getAttribute("data-v")===String(val) ? "true" : "false");
+  }
+  function syncSegs(){
+    setPressed("segModel", modelKey); setPressed("segCount", cfg.stoneCount); setPressed("segSet", cfg.setting);
+    setPressed("segGal", cfg.gallery || "plain"); setPressed("segSh", cfg.shoulder || "plain");
+  }
+  function segClick(boxId, apply){
+    document.getElementById(boxId).addEventListener("click", function(e){
+      var v = e.target.getAttribute && e.target.getAttribute("data-v"); if(!v) return;
+      apply(v); syncSegs(); rebuild();
+    });
+  }
+  segClick("segCount", function(v){cfg.stoneCount = parseInt(v,10);});
+  segClick("segSet", function(v){cfg.setting = v;});
+  segClick("segGal", function(v){cfg.gallery = v;});
+  segClick("segSh", function(v){cfg.shoulder = v;});
+  segClick("segModel", function(v){
+    loadModel(v); anim = false; yaw = 0; pitch = 0; zoom = 1;       // สลับแบบ -> กลับมุมหน้าแถว
+  });
+
+  /* ---------- GL ---------- */
+  var gl = null, pm = null, pg = null, metalBuf = null, gemBufs = [], lost = false, dirty = true;
+  var frameSpan = 14, frameCy = 0;
+
+  var VS = ["attribute vec3 aPos;attribute vec3 aNormal;uniform mat4 uMVP;uniform mat4 uModel;",
+    "varying vec3 vN;varying vec3 vW;",
+    "void main(){vN=(uModel*vec4(aNormal,0.0)).xyz;vW=(uModel*vec4(aPos,1.0)).xyz;gl_Position=uMVP*vec4(aPos,1.0);}"].join("\n");
+  var PREC = "#ifdef GL_FRAGMENT_PRECISION_HIGH\nprecision highp float;\n#else\nprecision mediump float;\n#endif\n";
+  var FS_METAL = PREC + [
+    "varying vec3 vN;varying vec3 vW;uniform vec3 uCam;uniform vec3 uColor;",
+    "vec3 env(vec3 R){",
+    "  float sky=smoothstep(-0.6,0.8,R.y);",
+    "  vec3 c=mix(vec3(0.16,0.17,0.19),vec3(0.98,0.98,1.0),sky);",
+    "  c+=vec3(1.0)*pow(max(dot(R,normalize(vec3(0.35,0.75,0.55))),0.0),24.0)*0.8;",
+    "  c+=vec3(0.9,0.92,1.0)*pow(max(dot(R,normalize(vec3(-0.8,0.2,0.4))),0.0),16.0)*0.5;",
+    "  float b=(R.y+0.05)*5.0;",
+    "  c*=1.0-0.55*exp(-b*b);",
+    "  return c;",
+    "}",
+    "void main(){",
+    "  vec3 N=normalize(vN);vec3 V=normalize(uCam-vW);",
+    "  if(dot(N,V)<0.0)N=-N;",
+    "  vec3 R=reflect(-V,N);",
+    "  float ndv=max(dot(N,V),0.0);",
+    "  vec3 col=uColor*(0.10+0.90*env(R))+pow(1.0-ndv,4.0)*0.06;",
+    "  gl_FragColor=vec4(col,1.0);",
+    "}"].join("\n");
+  var FS_GEM = PREC + [
+    "varying vec3 vN;varying vec3 vW;uniform vec3 uCam;uniform vec3 uTint;uniform vec3 uSpark;uniform vec3 uCap;uniform float uGlow;",
+    "void main(){",
+    "  vec3 N=normalize(vN);vec3 V=normalize(uCam-vW);",
+    "  if(dot(N,V)<0.0)N=-N;",
+    "  vec3 R=reflect(-V,N);",
+    "  float dif=0.5+0.5*dot(N,normalize(vec3(0.25,0.55,0.8)));",
+    "  float h=fract(sin(dot(N.xy+N.z,vec2(12.9898,78.233)))*43758.5453);",
+    "  float k=(0.30+0.70*dif)*(0.85+0.30*h);",
+    "  float sp=pow(max(dot(R,normalize(vec3(0.4,0.8,0.6))),0.0),8.0)*0.9",
+    "          +pow(max(dot(R,normalize(vec3(-0.7,0.3,0.55))),0.0),10.0)*0.7",
+    "          +pow(max(dot(R,normalize(vec3(0.0,-0.6,0.8))),0.0),6.0)*0.5;",
+    "  vec3 col=uTint*k+uSpark*sp+vec3(uGlow);",
+    "  gl_FragColor=vec4(min(col,uCap),1.0);",
+    "}"].join("\n");
+
+  function compile(type, src){
+    var s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+    if(!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s));
+    return s;
+  }
+  function program(fs, names){
+    var pr = gl.createProgram();
+    gl.attachShader(pr, compile(gl.VERTEX_SHADER, VS)); gl.attachShader(pr, compile(gl.FRAGMENT_SHADER, fs));
+    gl.bindAttribLocation(pr, 0, "aPos"); gl.bindAttribLocation(pr, 1, "aNormal");
+    gl.linkProgram(pr);
+    if(!gl.getProgramParameter(pr, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(pr));
+    var u = {};
+    names.forEach(function(nm){u[nm] = gl.getUniformLocation(pr, nm);});
+    return {pr:pr, u:u};
+  }
+  function initGL(){
+    pm = program(FS_METAL, ["uMVP","uModel","uCam","uColor"]);
+    pg = program(FS_GEM, ["uMVP","uModel","uCam","uTint","uSpark","uCap","uGlow"]);
+    gl.enable(gl.DEPTH_TEST); gl.disable(gl.CULL_FACE);
+  }
+  function upMesh(m){
+    var pb = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, pb); gl.bufferData(gl.ARRAY_BUFFER, m.pos, gl.STATIC_DRAW);
+    var nb = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, nb); gl.bufferData(gl.ARRAY_BUFFER, m.nor, gl.STATIC_DRAW);
+    var ib = gl.createBuffer(); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ib); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, m.idx, gl.STATIC_DRAW);
+    return {pb:pb, nb:nb, ib:ib, count:m.idx.length};
+  }
+  function freeMesh(b){if(b){gl.deleteBuffer(b.pb); gl.deleteBuffer(b.nb); gl.deleteBuffer(b.ib);}}
+  function uploadRing(){
+    freeMesh(metalBuf); gemBufs.forEach(freeMesh);
+    metalBuf = upMesh(ring.metal);
+    gemBufs = ring.gems.map(function(g){return upMesh(g.mesh);});
+  }
+  function drawBuf(b){
+    gl.bindBuffer(gl.ARRAY_BUFFER, b.pb); gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0,3,gl.FLOAT,false,0,0);
+    gl.bindBuffer(gl.ARRAY_BUFFER, b.nb); gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1,3,gl.FLOAT,false,0,0);
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, b.ib); gl.drawElements(gl.TRIANGLES, b.count, gl.UNSIGNED_SHORT, 0);
+  }
+
+  function rebuild(){
+    ring = (cfg.setting === "bypass") ? buildBypassRing(cfg) : buildRowRing(cfg);
+    var mx = 0;
+    ring.gems.forEach(function(g){mx = Math.max(mx, Math.abs(g.center[0]));});
+    // 11 พ.ย. เจ้าของ: "ข้างบนเหลือไว้ทำไม มองไม่เห็นเต็มวง" → เฟรมทั้งวง (เดิมซูมเฉพาะแถวพลอย หมุนรอบขอบเอวพลอย)
+    var top = ring.info.girdleRadiusMm + Math.min(cfg.stoneMm*0.6, 2.4), bot = cfg.innerDiaMm/2 + 1.2;
+    frameSpan = Math.max(top + bot, 2*(mx + cfg.stoneMm/2 + 0.4), 2*bot);   // สูงทั้งวง / กว้างแถว / กว้างวง เอาค่ามากสุด
+    frameCy = (top - bot)/2;                                                  // จุดหมุน = กึ่งกลางกรอบทั้งวง
+    buildRows(); buildSpec();
+    if(gl && !lost) uploadRing();
+    dirty = true;
+  }
+
+  /* ---------- matrix ---------- */
+  function mmul(a,b){var o=new Float32Array(16);for(var c=0;c<4;c++)for(var r=0;r<4;r++)
+    o[c*4+r]=a[r]*b[c*4]+a[4+r]*b[c*4+1]+a[8+r]*b[c*4+2]+a[12+r]*b[c*4+3];return o;}
+  function persp(fovy,asp,n,f){var t=1/Math.tan(fovy/2),o=new Float32Array(16);o[0]=t/asp;o[5]=t;o[10]=(f+n)/(n-f);o[11]=-1;o[14]=2*f*n/(n-f);return o;}
+  function rotX(a){var c=Math.cos(a),s=Math.sin(a);return new Float32Array([1,0,0,0, 0,c,s,0, 0,-s,c,0, 0,0,0,1]);}
+  function rotY(a){var c=Math.cos(a),s=Math.sin(a);return new Float32Array([c,0,-s,0, 0,1,0,0, s,0,c,0, 0,0,0,1]);}
+  function trans(x,y,z){return new Float32Array([1,0,0,0, 0,1,0,0, 0,0,1,0, x,y,z,1]);}
+
+  /* ---------- กล้อง/ลากหมุน ---------- */
+  var FOV = 0.42, TILT = 0.5;                       // TILT = เอียงจากมุมมองตรงหน้าแถว (rad) เพื่อเห็นข้างตัวเรือน
+  var yaw = 0, pitch = 0, zoom = 1, drag = false, lx = 0, ly = 0, spin = false, anim = false;
+  canvas.addEventListener("pointerdown", function(e){drag = true; anim = false; lx = e.clientX; ly = e.clientY; canvas.setPointerCapture(e.pointerId);});
+  canvas.addEventListener("pointermove", function(e){
+    if(!drag) return;
+    yaw += (e.clientX-lx)*0.01; pitch += (e.clientY-ly)*0.01;
+    pitch = Math.max(-1.5, Math.min(1.5, pitch)); lx = e.clientX; ly = e.clientY; dirty = true;
+  });
+  canvas.addEventListener("pointerup", function(){drag = false;});
+  canvas.addEventListener("pointercancel", function(){drag = false;});
+  canvas.addEventListener("wheel", function(e){
+    e.preventDefault(); zoom *= (1+(e.deltaY>0?1:-1)*0.08); zoom = Math.max(0.5, Math.min(2.2, zoom)); dirty = true;
+  }, {passive:false});
+  document.getElementById("spin").addEventListener("click", function(){
+    spin = !spin; this.setAttribute("aria-pressed", spin ? "true" : "false");
+  });
+  document.getElementById("reset").addEventListener("click", function(){
+    if(reduce){yaw = 0; pitch = 0; zoom = 1; dirty = true;} else anim = true;
+  });
+
+  function resizeIfNeeded(){
+    var dpr = Math.min(window.devicePixelRatio||1, 2);
+    var W = Math.round((canvas.clientWidth||stage.clientWidth)*dpr), H = Math.round((canvas.clientHeight||stage.clientHeight)*dpr);
+    if(W>0 && H>0 && (canvas.width!==W || canvas.height!==H)){canvas.width = W; canvas.height = H; return true;}
+    return false;
+  }
+
+  function draw(){
+    var W = canvas.width, H = canvas.height; if(!W || !H) return;
+    gl.viewport(0,0,W,H); gl.clearColor(0,0,0,0); gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
+    var th = Math.tan(FOV/2), D = (frameSpan/0.86)/(2*th*Math.min(1, W/H))*zoom;
+    var model = mmul(rotX(pitch), mmul(rotY(yaw), mmul(rotX(Math.PI/2-TILT), trans(0,-frameCy,0))));
+    var mvp = mmul(persp(FOV, W/H, Math.max(1,D-45), D+70), mmul(trans(0,0,-D), model));
+
+    gl.useProgram(pm.pr);
+    gl.uniformMatrix4fv(pm.u.uMVP,false,mvp); gl.uniformMatrix4fv(pm.u.uModel,false,model);
+    gl.uniform3f(pm.u.uCam,0,0,D); gl.uniform3f(pm.u.uColor,0.86,0.87,0.90);
+    drawBuf(metalBuf);
+
+    gl.useProgram(pg.pr);
+    gl.uniformMatrix4fv(pg.u.uMVP,false,mvp); gl.uniformMatrix4fv(pg.u.uModel,false,model); gl.uniform3f(pg.u.uCam,0,0,D);
+    for(var i=0;i<gemBufs.length;i++){
+      var s = STONES[colorIdx[i]], c = s.rgb;
+      gl.uniform3f(pg.u.uTint, c[0],c[1],c[2]);
+      if(s.cz){gl.uniform3f(pg.u.uSpark,1,1,1); gl.uniform3f(pg.u.uCap,1,1,1);}
+      else{
+        gl.uniform3f(pg.u.uSpark, 1+(c[0]-1)*0.65, 1+(c[1]-1)*0.65, 1+(c[2]-1)*0.65);      // ประกายคงโทนสี ไม่ขาวล้วน
+        gl.uniform3f(pg.u.uCap, Math.min(1,c[0]*1.3+0.12), Math.min(1,c[1]*1.3+0.12), Math.min(1,c[2]*1.3+0.12));
+      }
+      gl.uniform1f(pg.u.uGlow, i===hi ? 0.10 : 0.0);
+      drawBuf(gemBufs[i]);
+    }
+  }
+
+  function frame(){
+    requestAnimationFrame(frame);
+    if(!gl || lost) return;
+    if(anim){
+      var ty = Math.round(yaw/(2*Math.PI))*2*Math.PI;
+      yaw += (ty-yaw)*0.18; pitch += (0-pitch)*0.18; zoom += (1-zoom)*0.18; dirty = true;
+      if(Math.abs(ty-yaw)<0.003 && Math.abs(pitch)<0.003 && Math.abs(1-zoom)<0.003){yaw = 0; pitch = 0; zoom = 1; anim = false;}
+    }
+    if(spin && !drag){yaw += 0.006; dirty = true;}
+    if(resizeIfNeeded()) dirty = true;
+    if(!dirty) return;
+    dirty = false; draw();
+  }
+
+  /* ---------- เริ่มต้น + fallback ---------- */
+  function showMsg(t){msg.textContent = t; msg.style.display = "flex"; canvas.style.display = "none";}
+  function start(){
+    try{
+      gl = canvas.getContext("webgl", {antialias:true, alpha:true, premultipliedAlpha:false, failIfMajorPerformanceCaveat:true});
+      if(!gl) throw new Error("no webgl");
+      initGL();
+    }catch(err){
+      gl = null; showMsg("เบราว์เซอร์นี้แสดงภาพ 3 มิติไม่ได้ — ใช้รูปถ่ายแหวนจริงประกอบการเลือกแทน"); return;
+    }
+    canvas.addEventListener("webglcontextlost", function(e){e.preventDefault(); lost = true; showMsg("ภาพ 3 มิติหยุดชั่วคราว กำลังกู้คืน…");});
+    canvas.addEventListener("webglcontextrestored", function(){
+      lost = false; msg.style.display = "none"; canvas.style.display = "block";
+      try{initGL(); uploadRing();}catch(err){showMsg("แสดงภาพ 3 มิติไม่ได้ — ใช้รูปถ่ายแหวนจริงแทน");}
+      dirty = true;
+    });
+    uploadRing(); requestAnimationFrame(frame);
+  }
+  loadModel("trinity");
+  rebuild();        // สร้าง generator + panel ก่อน (ใช้ได้แม้ไม่มี GL)
+  start();
+})();
+</script>
+</body>
+</html>
