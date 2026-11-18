@@ -10,9 +10,10 @@ import { getPathMatch } from "next/dist/shared/lib/router/utils/path-match";
 import { matchHas } from "next/dist/shared/lib/router/utils/prepare-destination";
 import { modifyRouteRegex } from "next/dist/lib/redirect-status";
 import nextConfig from "../../next.config.mjs";
-import { middleware } from "../../middleware";
+import { config as mwConfig, middleware } from "../../middleware";
+import { getMiddlewareRouteMatcher } from "next/dist/shared/lib/router/utils/middleware-route-matcher";
 import { isExemptPath } from "../auth/exempt-path";
-import { APP_HOST, TOOLS_HOST, TOOLS_ORIGIN, isToolsHost, normalizeHost } from "./hosts";
+import { APP_HOST, TOOLS_HOST, TOOLS_ORIGIN, TOOLS_PASSTHROUGH_ALTERNATIVES, isToolsHost, isToolsPassthroughPath, normalizeHost } from "./hosts";
 
 type Has = { type: "host"; value: string };
 type Redirect = { source: string; has?: Has[]; destination: string; permanent: boolean };
@@ -53,7 +54,7 @@ const getMiddlewareMatchers = (
 ).getMiddlewareMatchers;
 function middlewareRuns(pathname: string): boolean {
   const mw = readFileSync(join(process.cwd(), "middleware.ts"), "utf8");
-  const src = JSON.parse(`"${/matcher:\s*\[\s*"([^"]+)"\s*,?\s*\]/.exec(mw)![1]}"`) as string;
+  const src = JSON.parse(`"${/matcher:\s*\[\s*"([^"]+)"/.exec(mw)![1]}"`) as string;
   const [m] = getMiddlewareMatchers(src, {} as never);
   return new RegExp(m.regexp).test(pathname);
 }
@@ -298,5 +299,103 @@ describe("middleware ชั้น (2) บน tools. — ฟังก์ชัน
       expect([307, 200]).toContain(res.status);
       expect(res.headers.get("location") ?? "").not.toContain("/login");
     }
+  });
+});
+
+// ───────── security M1 (18 พ.ย. 69): ชั้น (2) ต้องครอบ "ทุก path" บน tools. โดยไม่พึ่งชั้น (1) ─────────
+type CompiledMatcher = { regexp: string; has?: unknown[]; missing?: unknown[] };
+const fullMatchers = () => getMiddlewareMatchers(mwConfig.matcher as unknown, {} as never) as unknown as CompiledMatcher[];
+/** middleware "จะรัน" ไหมสำหรับ Host + path — ตัวเดียวกับที่ next start ใช้ (getMiddlewareRouteMatcher + matchHas) */
+function middlewareRunsOn(host: string, pathname: string, matchers: CompiledMatcher[] = fullMatchers()): boolean {
+  return getMiddlewareRouteMatcher(matchers as never)(pathname, { headers: { host } } as never, {});
+}
+
+const LAYER2_ONLY_PATHS = [
+  "/shop", "/shop/abc", "/stock/hero", "/stock/hero/", `/w/${TOKEN}`, `/w/s/${TOKEN}`, "/w/x", "/api/webhooks/x", "/api/webhooks/tiktok",
+  "/dashboard", "/login", "/tools", "/tools/", "/favicon.ico",
+];
+const ALLOWED_ON_TOOLS = [
+  "/ring-size", "/ring-size/", "/gem-quiz", "/gem-quiz/", "/ring-builder", "/ring-builder/", "/api/gem-quiz/submit", "/api/ring-size/event",
+  "/api/ring-builder/quote", "/_next/static/chunks/main.js", "/_next/image", "/3j-logo.png", "/gem-quiz/og.png", "/ring-size/og.png", "/ring-size/3j-mark.png",
+];
+
+describe("M1: matcher has-host — middleware รันทุก path บน tools. (รวม path ที่ exempt บน app.)", () => {
+  it("matcher มี 2 ตัว: string ฝั่ง app. (ไม่เปลี่ยน) + object has-host ที่ literal ตรง TOOLS_HOST_REGEX", async () => {
+    const m = mwConfig.matcher as unknown as Array<string | { source: string; has?: Array<{ type: string; value: string }> }>;
+    expect(m).toHaveLength(2);
+    expect(typeof m[0]).toBe("string");
+    const obj = m[1] as { source: string; has: Array<{ type: string; value: string }> };
+    expect(obj.source).toBe("/:path*");
+    expect(obj.has).toEqual([{ type: "host", value: ((await import("../../next.config.mjs")) as unknown as { TOOLS_HOST_REGEX: string }).TOOLS_HOST_REGEX }]);
+  });
+
+  it.each([...LAYER2_ONLY_PATHS, ...ALLOWED_ON_TOOLS])("tools.: middleware รันที่ %s", (p) => {
+    for (const h of [T, "TOOLS.3JTHAILAND.COM", "tools.3jthailand.com.", `${T}:443`]) expect(middlewareRunsOn(h, p), `${h} ${p}`).toBe(true);
+  });
+
+  it("app./preview/localhost/host ปลอม: ตัดสินเหมือน matcher เดิม (string ตัวแรก) ทุก path — exempt ยังไม่ผ่าน middleware", () => {
+    const appOnly = fullMatchers().slice(0, 1);
+    for (const h of [APP_HOST, "oms-3j.vercel.app", "localhost:3000", "evil-tools.3jthailand.com", "tools.3jthailand.com.evil.com", "xtools.3jthailand.com", ""]) {
+      for (const p of [...LAYER2_ONLY_PATHS, ...ALLOWED_ON_TOOLS, "/", "/oem", "/RING-SIZE"]) {
+        expect(middlewareRunsOn(h, p), `${h} ${p}`).toBe(middlewareRunsOn(h, p, appOnly));
+      }
+      for (const p of ["/shop", "/stock/hero", `/w/${TOKEN}`, "/api/webhooks/x", "/ring-size", "/tools"]) expect(middlewareRunsOn(h, p), `${h} ${p}`).toBe(false);
+    }
+  });
+});
+
+describe("M1: allowlist ชั้น (2) ตรงกับชั้น (1) (กัน drift 2 รายการ)", () => {
+  it("TOOLS_PASSTHROUGH_ALTERNATIVES == TOOLS_ALLOWLIST_ITEMS ของ next.config.mjs ไม่รวม '$' (= hub)", async () => {
+    const mod = (await import("../../next.config.mjs")) as unknown as { TOOLS_ALLOWLIST_ITEMS: string[] };
+    expect([...TOOLS_PASSTHROUGH_ALTERNATIVES]).toEqual(mod.TOOLS_ALLOWLIST_ITEMS.filter((x) => x !== "$"));
+  });
+  it("isToolsPassthroughPath: ตรง allowlist · look-alike/ตัวพิมพ์ใหญ่/traversal ไม่ผ่าน", () => {
+    for (const p of ALLOWED_ON_TOOLS) expect(isToolsPassthroughPath(p), p).toBe(true);
+    for (const p of [
+      "/", "/shop", "/w/x", "/api/webhooks/x", "/ring-size/x", "/ring-sizes", "/RING-SIZE", "/Gem-Quiz", "/gem-quiz/deep/x.png", "/_nextx/static/a.js", "/_next/staticx",
+      "/ring-size/../dashboard", "/ring-size/..%2fdashboard", "//dashboard", "/api/ring-size", "/api/ring-size/event/x", "/x/y.png", "/tools",
+    ]) expect(isToolsPassthroughPath(p), p).toBe(false);
+  });
+});
+
+describe("M1: ชั้น (2) ทำงานเองโดยไม่พึ่ง redirects() — เรียก middleware() ตรงๆ", () => {
+  beforeEach(() => {
+    process.env.AUTH_GATE = "on";
+    delete process.env.NEXT_PUBLIC_SUPABASE_URL;
+    delete process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  });
+  afterEach(() => {
+    delete process.env.AUTH_GATE;
+  });
+  const call = (p: string, init: { method?: string; headers?: Record<string, string> } = {}) =>
+    middleware(new NextRequest(`http://localhost:3000${p}`, { method: init.method ?? "GET", headers: { host: T, ...(init.headers ?? {}) } }));
+
+  it.each(["/shop", "/shop/abc", "/stock/hero", `/w/${TOKEN}`, `/w/s/${TOKEN}`, "/w/x", "/api/webhooks/x", "/api/webhooks/tiktok", "/tools", "/tools/x", "/api/ring-size", "/ring-size/x", "/RING-SIZE", "/_nextx/static/a.js"])(
+    "%s บน tools. → 307 absolute TOOLS_ORIGIN/ จากชั้น (2) · ไม่มี set-cookie",
+    async (p) => {
+      const res = await call(p);
+      expect(res.status).toBe(307);
+      expect(res.headers.get("location")).toBe(`${TOOLS_ORIGIN}/`);
+      expect(res.headers.get("set-cookie")).toBeNull();
+    },
+  );
+  it.each(ALLOWED_ON_TOOLS)("N4: %s บน tools. → ปล่อยผ่าน (next) ไม่ redirect ไม่ rewrite ไม่ 503 ไม่ set-cookie", async (p) => {
+    const res = await call(p);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("x-middleware-next")).toBe("1");
+    expect(res.headers.get("location")).toBeNull();
+    expect(res.headers.get("set-cookie")).toBeNull();
+  });
+  it.each(["/ring-size", "/gem-quiz", "/ring-builder", "/api/gem-quiz/submit", "/api/ring-size/event"])("T8: %s + Next-Action บน tools. → 307 '/' จากชั้น (2)", async (p) => {
+    const res = await call(p, { method: "POST", headers: { "next-action": "004083b42856f862733af2932e6508a77377c0a638" } });
+    expect(res.status).toBe(307);
+    expect(res.headers.get("location")).toBe(`${TOOLS_ORIGIN}/`);
+  });
+  it("T8: POST '/' + Next-Action → 405 (แม้เป็น GET ที่มี header next-action ก็ไม่ปล่อยถึง hub)", async () => {
+    expect((await call("/", { method: "POST", headers: { "next-action": "x" } })).status).toBe(405);
+    expect((await call("/", { headers: { "next-action": "x" } })).status).toBe(405);
+  });
+  it("'/' GET ปกติยัง rewrite เป็น hub", async () => {
+    expect((await call("/")).headers.get("x-middleware-rewrite")).toContain("/tools");
   });
 });

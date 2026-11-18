@@ -19,7 +19,7 @@ const getMiddlewareMatchers = (
 
 function realMatcherSource(): string {
   const mw = readFileSync(join(process.cwd(), "middleware.ts"), "utf8");
-  const m = /matcher:\s*\[\s*"([^"]+)"\s*,?\s*\]/.exec(mw);
+  const m = /matcher:\s*\[\s*"([^"]+)"/.exec(mw);
   if (!m) throw new Error("ไม่พบ config.matcher ใน middleware.ts");
   return JSON.parse(`"${m[1]}"`) as string; // ถอด escape ของสตริง TS (\\. → \.)
 }

@@ -20,7 +20,8 @@ export const TOOLS_HOST_REGEX = "tools\\.3jthailand\\.com\\.?";
 // ⚠️ regex 3 ก้อนต้องตรงกัน: allowlist นี้ · matcher ใน middleware.ts · EXEMPT_PATTERN ใน lib/auth/exempt-path.ts
 //    เพิ่มหน้าลูกค้าใหม่ = แก้ 3 ที่ (ลืมที่นี่ = หน้าใหม่ถูกส่งไป hub บน tools. · fail-closed) · test: lib/site/tools-host.test.ts
 // หน้าแรก "" ($) = hub (middleware rewrite → /tools) · `_next/static/` ต้องมี "/" ต่อท้าย (ไม่ใช่ prefix _next/staticx)
-export const TOOLS_ALLOWLIST = [
+// ⚠️ ชั้น (2) ใน middleware.ts ใช้รายการเดียวกัน (lib/site/hosts.ts TOOLS_PASSTHROUGH_ALTERNATIVES) — test ตรวจให้ตรงกัน (security M1: ห้ามพึ่งชั้น (1) ชั้นเดียว)
+export const TOOLS_ALLOWLIST_ITEMS = [
   "$",
   "ring-size/?$",
   "gem-quiz/?$",
@@ -33,7 +34,8 @@ export const TOOLS_ALLOWLIST = [
   "[^/]+\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$",
   "gem-quiz/[^/]+\\.(?:svg|png|jpg|jpeg|webp)$",
   "ring-size/[^/]+\\.(?:svg|png|jpg|jpeg|webp)$",
-].join("|");
+];
+export const TOOLS_ALLOWLIST = TOOLS_ALLOWLIST_ITEMS.join("|");
 const TOOLS_HOST_HAS = [{ type: "host", value: TOOLS_HOST_REGEX }];
 const HUB_FRAME_HEADERS = [
   { key: "X-Frame-Options", value: "DENY" },

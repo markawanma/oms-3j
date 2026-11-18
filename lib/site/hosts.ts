@@ -8,6 +8,29 @@ export const TOOLS_HOST = "tools.3jthailand.com";
 export const APP_HOST = "app.3jthailand.com";
 export const TOOLS_ORIGIN = `https://${TOOLS_HOST}`;
 
+/** allowlist ของ path ที่เปิดได้บน tools. (ไม่รวม "/" = hub ซึ่ง middleware rewrite เอง) — ต้องตรงกับ TOOLS_ALLOWLIST_ITEMS ใน next.config.mjs (test ตรวจ drift)
+ *  ใช้ในชั้น (2) ของ middleware: path นอกนี้ = 307 "/" แม้ชั้น (1) ของ next.config จะไม่ทำงาน (security M1) */
+export const TOOLS_PASSTHROUGH_ALTERNATIVES = [
+  String.raw`ring-size/?$`,
+  String.raw`gem-quiz/?$`,
+  String.raw`ring-builder/?$`,
+  String.raw`api/gem-quiz/submit/?$`,
+  String.raw`api/ring-size/event/?$`,
+  String.raw`api/ring-builder/quote/?$`,
+  String.raw`_next/static/`,
+  String.raw`_next/image/?$`,
+  String.raw`[^/]+\.(?:svg|png|jpg|jpeg|gif|webp|ico)$`,
+  String.raw`gem-quiz/[^/]+\.(?:svg|png|jpg|jpeg|webp)$`,
+  String.raw`ring-size/[^/]+\.(?:svg|png|jpg|jpeg|webp)$`,
+] as const;
+
+const TOOLS_PASSTHROUGH_RE = new RegExp(`^(?:${TOOLS_PASSTHROUGH_ALTERNATIVES.join("|")})`);
+
+/** pathname (ขึ้นต้น "/") อยู่ใน allowlist ของ tools. ไหม — case-sensitive (/RING-SIZE ไม่ผ่าน → 307) */
+export function isToolsPassthroughPath(pathname: string): boolean {
+  return TOOLS_PASSTHROUGH_RE.test(pathname.startsWith("/") ? pathname.slice(1) : pathname);
+}
+
 /** hostname ที่ normalize แล้ว: ตัด :port · lowercase · ตัด "." ท้าย 1 ตัว · รูปแบบเพี้ยน/ว่าง → null
  *  ตัด port แบบเดียวกับ Next (`host.split(":", 1)[0]`) เพื่อให้ redirects() ใน next.config กับ middleware ตัดสินตรงกัน */
 export function normalizeHost(raw: string | null | undefined): string | null {
