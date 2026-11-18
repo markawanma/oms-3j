@@ -71,18 +71,51 @@ for (const [h, p, label, check] of toolsRows) rows.push({ host: h, method: "GET"
 for (const h of ["evil-tools.3jthailand.com", "tools.3jthailand.com.evil.com", "xtools.3jthailand.com"]) {
   rows.push({ host: h, method: "GET", path: "/dashboard", label: "ไม่ใช่ tools. (ไม่ 307 → /)", check: (r) => !TO_ROOT(r) });
 }
-// app. / localhost = พฤติกรรม app. : /tools เปิดได้ · 3 หน้าลูกค้าเสิร์ฟตรง (ไม่ redirect · P1)
-for (const h of ["app.3jthailand.com", "localhost"]) {
-  rows.push({ host: h, method: "GET", path: "/tools", label: "app. 200 hub", check: OK });
-  rows.push({ host: h, method: "GET", path: "/ring-size", label: "app. 200 (ไม่ redirect · P1)", check: OK });
-  rows.push({ host: h, method: "GET", path: "/gem-quiz", label: "app. 200 (ไม่ redirect · P1)", check: OK });
-  rows.push({ host: h, method: "GET", path: "/dashboard", label: "app. ไม่ถูกส่งไป hub", check: (r) => !TO_ROOT(r) });
+// P2 (18 พ.ย. 69) — app.3jthailand.com → 307 tools. (ปลายทางตายตัว · query ส่งต่อทั้งก้อน) · localhost/preview เสิร์ฟตรง (N2)
+const Q = "t=gac.acp.cpb.bgc.pab.gpa&i=love&q=love&c=1&d=2&r=3";
+const TO_TOOLS = (path) => (r) => r.status === 307 && r.location === `https://${TOOLS}${path}`;
+const appHosts = ["app.3jthailand.com", "APP.3JTHAILAND.COM", "app.3jthailand.com.", "app.3jthailand.com:443"];
+for (const h of appHosts) {
+  rows.push({ host: h, method: "GET", path: "/ring-size", label: "P2 → 307 tools./ring-size", check: TO_TOOLS("/ring-size") });
+  rows.push({ host: h, method: "GET", path: "/gem-quiz", label: "P2 → 307 tools./gem-quiz", check: TO_TOOLS("/gem-quiz") });
+  rows.push({ host: h, method: "GET", path: "/ring-builder", label: "P2 → 307 tools./ring-builder", check: TO_TOOLS("/ring-builder") });
+  rows.push({ host: h, method: "GET", path: "/tools", label: "P2 → 307 tools./", check: TO_TOOLS("/") });
+}
+rows.push({ host: "app.3jthailand.com", method: "GET", path: `/ring-builder?${Q}`, label: "N5 query คงเดิมทั้งก้อน", check: TO_TOOLS(`/ring-builder?${Q}`) });
+rows.push({ host: "app.3jthailand.com", method: "GET", path: "/gem-quiz?utm_source=qr&x=%E0%B8%81", label: "N5 query (percent-encoded) คงเดิม", check: TO_TOOLS("/gem-quiz?utm_source=qr&x=%E0%B8%81") });
+rows.push({ host: "app.3jthailand.com", method: "HEAD", path: "/ring-size", label: "P2 HEAD → 307", check: TO_TOOLS("/ring-size") });
+// open redirect / ปลายทางต้องไม่ขยับตาม input: path/query/header แปลกๆ ได้ปลายทาง host เดิมเสมอ
+for (const p of ["/ring-size?next=https://evil.example/", "/ring-size?redirect=//evil.example", "/ring-builder?t=//evil.example"]) {
+  rows.push({ host: "app.3jthailand.com", method: "GET", path: p, label: "ไม่ open redirect (host ปลายทางตายตัว)", check: (r) => r.status === 307 && new URL(r.location).origin === `https://${TOOLS}` && new URL(r.location).pathname === p.split("?")[0] });
+}
+rows.push({ host: "app.3jthailand.com", method: "GET", path: "/ring-size", headers: { "x-forwarded-host": "evil.example", origin: "https://evil.example" }, label: "ไม่เชื่อ x-forwarded-host/Origin", check: TO_TOOLS("/ring-size") });
+// ไม่วน: ปลายทางบน tools. ได้ 200 (หรือ hub) ไม่ใช่ 307 อีก
+for (const p of ["/ring-size", "/gem-quiz", "/ring-builder", "/"]) rows.push({ host: TOOLS, method: "GET", path: p, label: "tools. ปลายทางไม่ redirect ซ้ำ (ไม่วน)", check: OK });
+// ต้องไม่พัง: API ไม่ redirect · asset ไม่ redirect · หลังบ้านบน app. ไม่ถูกส่งไป tools./hub
+rows.push({ host: "app.3jthailand.com", method: "GET", path: "/api/ring-size/event", label: "API ไม่ redirect (405/อื่น ไม่ใช่ 307)", check: (r) => r.status !== 307 && r.status !== 308 });
+rows.push({ host: "app.3jthailand.com", method: "GET", path: "/api/ring-builder/quote", label: "API ไม่ redirect", check: (r) => r.status !== 307 && r.status !== 308 });
+rows.push({ host: "app.3jthailand.com", method: "GET", path: "/api/gem-quiz/submit", label: "API ไม่ redirect", check: (r) => r.status !== 307 && r.status !== 308 });
+for (const p of ["/ring-size/og.png", "/gem-quiz/og.png", "/3j-logo.png"]) rows.push({ host: "app.3jthailand.com", method: "GET", path: p, label: "asset บน app. ยัง 200 (การ์ด OG เก่า)", check: OK });
+for (const p of ["/ring-size/x", "/gem-quiz/deep", "/ring-builders", "/toolsx", "/tools/x"]) rows.push({ host: "app.3jthailand.com", method: "GET", path: p, label: "look-alike ไม่โดน P2 (ไม่ 307 → tools.)", check: (r) => !(r.location ?? "").startsWith(`https://${TOOLS}`) });
+for (const p of ["/dashboard", "/login", "/shop", "/stock/hero", `/w/${TOKEN}`]) rows.push({ host: "app.3jthailand.com", method: "GET", path: p, label: "หลังบ้าน/หน้าอื่นบน app. ไม่ถูกส่งไป tools./hub", check: (r) => !TO_ROOT(r) && !(r.location ?? "").startsWith(`https://${TOOLS}`) });
+// host ปลอม (look-alike app.) ไม่โดน P2 · localhost = เสิร์ฟตรง
+for (const h of ["evil-app.3jthailand.com", "app.3jthailand.com.evil.com", "xapp.3jthailand.com"]) rows.push({ host: h, method: "GET", path: "/ring-size", label: "look-alike app. ไม่โดน P2", check: (r) => !(r.location ?? "").startsWith(`https://${TOOLS}`) });
+for (const h of ["localhost", "oms-3j.vercel.app"]) {
+  rows.push({ host: h, method: "GET", path: "/tools", label: "N2 200 hub (ไม่ redirect)", check: OK });
+  rows.push({ host: h, method: "GET", path: "/ring-size", label: "N2 200 (ไม่ redirect)", check: OK });
+  rows.push({ host: h, method: "GET", path: "/gem-quiz", label: "N2 200 (ไม่ redirect)", check: OK });
+  rows.push({ host: h, method: "GET", path: `/ring-builder?${Q}`, label: "N2 200 (ไม่ redirect)", check: OK });
+  rows.push({ host: h, method: "GET", path: "/dashboard", label: "ไม่ถูกส่งไป hub", check: (r) => !TO_ROOT(r) });
 }
 if (withPost) {
   const nx = { "next-action": "00deadbeef00deadbeef00deadbeef00deadbeef00", "content-type": "text/plain;charset=UTF-8" };
   rows.push({ host: TOOLS, method: "POST", path: "/", headers: nx, label: "T8 405 ไม่รัน action", check: (r) => r.status === 405 });
   rows.push({ host: TOOLS, method: "POST", path: "/dashboard", headers: nx, label: "T8 → 307 /", check: TO_ROOT });
   rows.push({ host: TOOLS, method: "POST", path: "/ring-size", headers: nx, label: "T8 next-action → 307 / (action ไม่รัน)", check: TO_ROOT });
+  // P2: POST ไป app. หน้าลูกค้า → 307 (คง method · ไม่กลายเป็น GET) ไป tools. · ไม่แตะ API (API ไม่อยู่ใน rule)
+  rows.push({ host: "app.3jthailand.com", method: "POST", path: "/ring-size", label: "P2 POST → 307 (คง method) tools.", check: TO_TOOLS("/ring-size") });
+  rows.push({ host: "app.3jthailand.com", method: "POST", path: "/ring-size", headers: nx, label: "P2 POST+next-action → 307 tools. (action ไม่รันบน app.)", check: TO_TOOLS("/ring-size") });
+  rows.push({ host: "app.3jthailand.com", method: "POST", path: "/api/ring-size/event", label: "P2 POST API ไม่ redirect", check: (r) => r.status !== 307 && r.status !== 308 });
 }
 
 let failed = 0;

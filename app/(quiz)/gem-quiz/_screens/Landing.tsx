@@ -3,6 +3,7 @@
 import { GemIcon } from "../_components/GemIcon";
 import { PrimaryButton } from "../_components/PrimaryButton";
 import { Logo } from "@/components/brand/Logo";
+import { ToolsHubLink } from "../../_components/ToolsHubLink";
 import { GEM_QUIZ_STONE_BY_CODE } from "@/lib/gem-quiz/config";
 
 // code review S5: index ตรงๆ แทน .find()+`!` — "garnet" เป็น literal ที่ TS
@@ -91,6 +92,8 @@ export function Landing({ onStart }: { onStart: () => void }) {
       <PrimaryButton onClick={onStart} trailingArrow>
         เริ่มทำแบบทดสอบ
       </PrimaryButton>
+      {/* P3: ทางกลับหน้ารวมเครื่องมือ — เฉพาะ landing (ยังไม่มีคำตอบให้เสีย) · Q1–Q5/ผล ไม่มี */}
+      <ToolsHubLink variant="text" className="mt-2" />
       <p className="mt-4 font-quiz-display text-base italic text-[var(--gq-burgundy)]">Your Gem. Your Intention. Your Day.</p>
     </div>
   );

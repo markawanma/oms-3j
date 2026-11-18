@@ -30,6 +30,7 @@ import { OwnGemPicker } from "./_components/OwnGemPicker";
 import { PhotoGallery, photoAlt } from "./_components/PhotoGallery";
 import { RingStage } from "./_components/RingStage";
 import { SizePicker } from "./_components/SizePicker";
+import { ToolsHubLink } from "../_components/ToolsHubLink";
 
 type RecIndex = 1 | 2 | 3;
 /** สีที่เลือกเอง จำไว้ต่อ "จำนวนเม็ด" (2 = ไขว้ [บน, ล่าง] · 3/4/6/7 = แถว ซ้าย→ขวา) — แบบที่จำนวนเท่ากันใช้ชุดเดียวกัน */
@@ -236,6 +237,8 @@ export function RingShowcaseClient({ params }: { params: ShowcaseParams }) {
         </div>
 
         <header className="min-w-0 lg:col-start-2 lg:row-start-1 lg:pt-6">
+          {/* P3: ทางกลับหน้ารวมเครื่องมือ — state อยู่ใน URL อยู่แล้ว เปิดได้ตลอด */}
+          <ToolsHubLink variant="text" className="-mt-1 mb-1" />
           <p className="pl-[0.4em] font-quiz-display text-[13px] font-semibold tracking-[0.4em] text-[var(--gq-burgundy-dark)]">3J · JEWELRY</p>
           <h1 className="mt-2 font-quiz-serif text-2xl font-semibold leading-snug text-[var(--gq-burgundy-dark)]">{SHOWCASE_COPY.h1}</h1>
           <p className="mt-1 text-base">

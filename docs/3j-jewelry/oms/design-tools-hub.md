@@ -52,6 +52,8 @@ Request -> next.config headers() -> next.config redirects() -> middleware -> rou
 
 `app/(quiz)/tools/page.tsx` — ใต้ `(quiz)` เพื่อได้ฟอนต์/shell และ **ถูก `lib/gem-quiz/no-server-action-graph.test.ts` เดินครอบอัตโนมัติ** (ห้าม "use server") · server component static ไม่มี DB/env/token · ลิงก์ไป 3 หน้า = `<a href>` relative ธรรมดา ห้าม next/link (header ติดเฉพาะตอนโหลดหน้าเต็ม — L2 เดิม)
 
+> **อัปเดต P2/P3 (18 พ.ย. 69):** หลัง P2 หน้าลูกค้า 3 หน้าอยู่บน tools. เสมอ (app. 307 ออกหมด) → `ToolsHubLink` ใช้ `HUB_URL = "/"` (lib/site/hosts.ts) ไม่ใช่ `/tools` — บน tools. "/" = hub ตรงๆ ไม่เสีย hop 307 · ข้อแลก: บน localhost/*.vercel.app (ไม่ redirect) "/" = dashboard→login ตอนกดทดสอบ · ข้อความด้านล่างเป็นการตัดสินใจก่อน P2
+
 ลิงก์ "กลับหน้ารวม" จาก 3 หน้า (ถ้า Padmé ใส่) = `href="/tools"` **ห้ามเป็น "/"** — บน app./preview "/" = dashboard → login (เผยว่ามีหลังบ้าน) · `/tools` ใช้ได้ทุก host (บน tools. → 307 "/") · ⚠️ ทำหลัง `feature/ring-showcase-multi` merge เท่านั้น (branch นั้นมี copy-guard "href ใน DOM ได้แค่ lineOaMessageUrl, /ring-size, /gem-quiz" + แก้ไฟล์ ring-builder ราว 20 ไฟล์ → ชนแน่)
 
 ## 2. ไฟล์ที่ต้องสร้าง/แก้

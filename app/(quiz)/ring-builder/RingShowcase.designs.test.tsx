@@ -216,7 +216,9 @@ describe("ทุกแบบ × ทุกโหมด — Z3 Z4 Z10 (DOM จร�
         expect([...lineMessage().matchAll(/(\d[\d,]*)\s*บาท/g)].map((m) => m[1])).toEqual(["890"]);
         expect(text).not.toMatch(/เพชร|undefined|NaN|\[object/);
         const hrefs = [...container.querySelectorAll("a[href]")].map((a) => a.getAttribute("href") ?? "");
-        for (const h of hrefs) expect(h === "/ring-size" || h === "/gem-quiz" || h.startsWith("https://line.me/R/oaMessage/")).toBe(true);
+        // P3: "/" = ลิงก์กลับหน้ารวมเครื่องมือ (ToolsHubLink) — ต้องมีตัวเดียวเท่านั้น (ไม่ใช่ prefix/origin อื่น)
+        for (const h of hrefs) expect(h === "/" || h === "/ring-size" || h === "/gem-quiz" || h.startsWith("https://line.me/R/oaMessage/")).toBe(true);
+        expect(hrefs.filter((h) => h === "/")).toHaveLength(1);
       }
     }
   });
