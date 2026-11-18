@@ -17,7 +17,7 @@ import {
   SHOWCASE_PATH,
   SHOWCASE_SET_COUNT,
 } from "./config";
-import { DEFAULT_DESIGN_ID, isShowcaseDesignId, type ShowcaseDesignId } from "./designs";
+import { DEFAULT_DESIGN_ID, findShowcaseDesign, isShowcaseDesignId, seedFromPair, type ShowcaseDesignId } from "./designs";
 
 export type GemTop3 = readonly [GemQuizStoneCode, GemQuizStoneCode, GemQuizStoneCode];
 export type IntentionTable = Readonly<Record<GemQuizIntention, GemTop3>>;
@@ -97,6 +97,37 @@ export function parseOwnParam(raw: unknown): OwnGems | null {
   return isStoneCode(top) && isStoneCode(bottom) ? { top, bottom } : null;
 }
 
+/** จำนวนเม็ดของแบบแถว (null = ไขว้/id ผิด) */
+function rowStoneCount(ring: unknown): number | null {
+  const d = findShowcaseDesign(ring);
+  return d && d.layout.kind === "row" ? d.layout.stoneCount : null;
+}
+
+/**
+ * `c` ของแบบแถว (D1.2a) — รหัส 1 ตัวอักษร (gacpb) ต่อเม็ด ซ้าย→ขวา คั่น `.` · ยาว = จำนวนเม็ดของแบบเป๊ะ
+ * ข้อยกเว้นเดียว: ยาว 2 (ลิงก์ preview D1.2 · รหัสเต็มหรือตัวอักษร) → ขยาย เม็ดกลาง = ตัวแรก ที่เหลือ = ตัวที่สอง
+ * ไขว้ / จำนวนอื่น / รหัสนอก whitelist / ตัวพิมพ์ใหญ่ / ยาวเกิน 64 / ไม่ใช่ string = null (ถือว่ายังไม่เลือก · ไม่ throw)
+ */
+export function parseOwnSlotsParam(raw: unknown, ring: unknown): GemQuizStoneCode[] | null {
+  const n = rowStoneCount(ring);
+  if (n === null || typeof raw !== "string" || raw.length === 0 || raw.length > SHOWCASE_PARAM_MAX_LEN) return null;
+  const parts = raw.split(".");
+  if (parts.length === n) {
+    const out: GemQuizStoneCode[] = [];
+    for (const p of parts) {
+      const code = LETTER_STONE.get(p);
+      if (!code) return null;
+      out.push(code);
+    }
+    return out;
+  }
+  if (parts.length === 2) {
+    const [a, b] = parts.map((p) => (isStoneCode(p) ? p : LETTER_STONE.get(p)));
+    return a && b ? seedFromPair(n, a, b) : null;
+  }
+  return null;
+}
+
 /** `d` — 1/2/3/own */
 export function parseDesignParam(raw: unknown): DesignParam | null {
   switch (raw) {
@@ -131,25 +162,30 @@ export interface ShowcaseParams {
   /** `q` — เรื่องที่ตอบใน quiz · ใช้ได้เมื่อมี t · ไม่มี/ผิดรูป = null (ผู้ใช้ถือ q = i ตอนโหลดแรก) */
   answered: GemQuizIntention | null;
   own: OwnGems | null;
+  /** `c` ของแบบแถว (D1.2a) — N รหัสซ้าย→ขวา · แบบไขว้ = null เสมอ (ไขว้ใช้ `own`) */
+  ownSlots: GemQuizStoneCode[] | null;
   design: DesignParam | null;
   /** `r` — แบบแหวน · ไม่มี/ผิด = ไขว้ (ลิงก์ D1/D1.1 เดิมเปิดแบบไขว้เหมือนเดิม) */
   ring: ShowcaseDesignId;
 }
 
-export const EMPTY_SHOWCASE_PARAMS: ShowcaseParams = { top3: null, table: null, intention: null, answered: null, own: null, design: null, ring: DEFAULT_DESIGN_ID };
+export const EMPTY_SHOWCASE_PARAMS: ShowcaseParams = { top3: null, table: null, intention: null, answered: null, own: null, ownSlots: null, design: null, ring: DEFAULT_DESIGN_ID };
 
 /** อ่านเฉพาะ 7 key ของ searchParams (ไม่แตะ key อื่นเลย) */
 export function readShowcaseParams(searchParams: Readonly<Record<string, unknown>>): ShowcaseParams {
   const intention = parseIntentionParam(searchParams[SHOWCASE_PARAM_INTENTION]);
   const table = parseTableParam(searchParams[SHOWCASE_PARAM_TABLE]);
+  const ring = parseDesignIdParam(searchParams[SHOWCASE_PARAM_RING]) ?? DEFAULT_DESIGN_ID;
+  const rawOwn = searchParams[SHOWCASE_PARAM_OWN]; // อ่านครั้งเดียว (ไม่แตะ key ซ้ำ)
   return {
     top3: parseGemParam(searchParams[SHOWCASE_PARAM_KEY]),
     table: intention ? table : null,
     intention,
     answered: intention && table ? parseIntentionParam(searchParams[SHOWCASE_PARAM_ANSWERED]) : null,
-    own: parseOwnParam(searchParams[SHOWCASE_PARAM_OWN]),
+    own: parseOwnParam(rawOwn),
+    ownSlots: parseOwnSlotsParam(rawOwn, ring),
     design: parseDesignParam(searchParams[SHOWCASE_PARAM_DESIGN]),
-    ring: parseDesignIdParam(searchParams[SHOWCASE_PARAM_RING]) ?? DEFAULT_DESIGN_ID,
+    ring,
   };
 }
 
@@ -176,6 +212,8 @@ export interface ShowcaseUrlState {
   /** `g` เดิม — ใส่ได้เฉพาะตอนยังไม่เลือกเรื่อง */
   legacyTop3: GemTop3 | null;
   own: OwnGems | null;
+  /** D1.2a: สีรายเม็ดของแบบแถว (ซ้าย→ขวา) — ใช้เมื่อ `ring` เป็นแบบแถวและจำนวนตรงเท่านั้น · ลำดับก่อน `own` */
+  ownSlots?: readonly GemQuizStoneCode[] | null;
   active: "rec" | "own";
   recIndex: 1 | 2 | 3;
   /** แบบแหวน (`r`) — ไม่ใส่/ไขว้ = ไม่เขียน key (URL ของไขว้ = byte เดิมทุกสถานะ) */
@@ -194,7 +232,11 @@ export function buildShowcaseUrl(state: ShowcaseUrlState): string {
   if (intention) parts.push(`${SHOWCASE_PARAM_INTENTION}=${intention}`);
   if (hasTable && isIntentionCode(state.answered)) parts.push(`${SHOWCASE_PARAM_ANSWERED}=${state.answered}`);
   if (!intention && isTop3(state.legacyTop3)) parts.push(`${SHOWCASE_PARAM_KEY}=${state.legacyTop3.join(".")}`);
-  if (state.own && isStoneCode(state.own.top) && isStoneCode(state.own.bottom)) {
+  const rowN = rowStoneCount(state.ring);
+  const slotsOk = rowN !== null && Array.isArray(state.ownSlots) && state.ownSlots.length === rowN && state.ownSlots.every(isStoneCode);
+  if (slotsOk) {
+    parts.push(`${SHOWCASE_PARAM_OWN}=${(state.ownSlots as readonly GemQuizStoneCode[]).map((c) => STONE_LETTER[c]).join(".")}`);
+  } else if (state.own && isStoneCode(state.own.top) && isStoneCode(state.own.bottom)) {
     parts.push(`${SHOWCASE_PARAM_OWN}=${state.own.top}.${state.own.bottom}`);
   }
   if (state.active === "own") parts.push(`${SHOWCASE_PARAM_DESIGN}=own`);

@@ -46,3 +46,15 @@ export function designTints(id: ShowcaseDesignId, main: GemQuizStoneCode | null,
   const mains = new Set(mainIndexes(n));
   return Array.from({ length: n }, (_, i) => (mains.has(i) ? mainTint : subTint));
 }
+
+/**
+ * สีรายเม็ด (D1.2a · แบบแถว · ซ้าย→ขวา) — ยาวเท่าจำนวนเม็ดของโมเดลเสมอ
+ * จำนวนรหัสไม่ตรงกับแบบ / แบบไขว้ = CZ ขาวทุกเม็ด (ไม่เดา ไม่ crash) · id ผิด = throw เหมือน designTints
+ */
+export function slotTints(id: ShowcaseDesignId, codes: readonly GemQuizStoneCode[]): GemTint[] {
+  const design = findShowcaseDesign(id);
+  if (!design) throw new Error(`gem-colors: ไม่รู้จักแบบ "${String(id)}"`);
+  const n = gemSlotCount(design);
+  if (design.layout.kind !== "row" || codes.length !== n) return Array.from({ length: n }, () => CZ_TINT);
+  return codes.map((c) => stoneTint(c));
+}

@@ -66,7 +66,7 @@ describe("readShowcaseParams — param ผสมกัน", () => {
   });
   it("ค่ายาว 10k ทุก key พร้อมกัน → ไม่ throw · ทุก key null · ผลลัพธ์ไม่มีสตริงดิบ", () => {
     const p = readShowcaseParams({ g: HUGE, t: HUGE, i: HUGE, q: HUGE, c: HUGE, d: HUGE, r: HUGE });
-    expect(p).toEqual({ top3: null, table: null, intention: null, answered: null, own: null, design: null, ring: "bypass2" });
+    expect(p).toEqual({ top3: null, table: null, intention: null, answered: null, own: null, ownSlots: null, design: null, ring: "bypass2" });
     expect(JSON.stringify(p)).not.toContain("xxx");
   });
   it("key เป็นชื่อ prototype ใน searchParams ไม่ทำให้ใครอ่านผิด (constructor/__proto__/toString)", () => {

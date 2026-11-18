@@ -19,6 +19,7 @@ export function RingStage({
   design,
   top,
   bottom,
+  slots,
   ariaLabel,
   photo,
   photoAlt,
@@ -26,6 +27,8 @@ export function RingStage({
   design: ShowcaseDesign;
   top: GemQuizStoneCode | null;
   bottom: GemQuizStoneCode | null;
+  /** D1.2a: สีรายเม็ด (แบบแถว · โหมดเลือกเองที่เลือกครบแล้ว) */
+  slots?: readonly GemQuizStoneCode[] | null;
   ariaLabel: string;
   /** รูปจริงของแบบนี้ (undefined = ยังไม่มีรูปถ่ายจริง) */
   photo?: ShowcasePhoto;
@@ -95,6 +98,7 @@ export function RingStage({
           designId={design.id}
           top={top}
           bottom={bottom}
+          slots={slots}
           ariaLabel={ariaLabel}
           showReset={mode === "ready" && !designFailed}
           onReady={() => setMode("ready")}

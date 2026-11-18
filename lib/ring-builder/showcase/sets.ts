@@ -63,3 +63,26 @@ export function intentionOnlyTop3(intention: GemQuizIntention): GemTop3 {
 export function stoneLabel(code: GemQuizStoneCode): string {
   return GEM_QUIZ_STONE_BY_CODE[code].labelTh;
 }
+
+export type OwnSlotsDescription =
+  | { kind: "same"; code: GemQuizStoneCode; label: string; keywords: string }
+  | { kind: "pair"; pair: GemQuizPair }
+  | { kind: "list"; items: { label: string; keywords: string }[] };
+
+/**
+ * คำอธิบายพลอยของโหมดรายเม็ด (D1.2a A6) — ข้อความมาจาก config ทั้งหมด ไม่แต่งความหมายเอง
+ * 1 ชนิด = same · พอดี 2 ชนิดที่มีคู่ใน GEM_QUIZ_PAIRS = pair (ไม่สนลำดับ/จำนวนเม็ด) · นอกนั้น = รายชนิดตามลำดับซ้าย→ขวาที่เจอก่อน
+ */
+export function describeOwnSlots(codes: readonly GemQuizStoneCode[]): OwnSlotsDescription | null {
+  if (codes.length === 0) return null;
+  const kinds = [...new Set(codes)];
+  if (kinds.length === 1) {
+    const s = GEM_QUIZ_STONE_BY_CODE[kinds[0]];
+    return { kind: "same", code: kinds[0], label: s.labelTh, keywords: s.keywords };
+  }
+  if (kinds.length === 2) {
+    const pair = findExactPair(kinds[0], kinds[1]);
+    if (pair) return { kind: "pair", pair };
+  }
+  return { kind: "list", items: kinds.map((c) => ({ label: GEM_QUIZ_STONE_BY_CODE[c].labelTh, keywords: GEM_QUIZ_STONE_BY_CODE[c].keywords })) };
+}

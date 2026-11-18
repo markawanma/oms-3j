@@ -88,6 +88,21 @@ export const SHOWCASE_COPY = {
   ownNoPairNote: "คู่นี้ยังไม่มีคำอธิบายเฉพาะคู่ แสดงคำอธิบายรายเม็ดแทน",
   gemNone: "CZ ขาว (ยังไม่ได้เลือกพลอยสี)", // โหมดเลือกเองที่ยังไม่เลือก — ใช้ตรงกันทั้งสรุปบนจอและ LINE
   summaryOwn: "เลือกพลอยเอง",
+  // D1.2a เลือกรายเม็ด (แบบแถว) — ทุกเม็ดเท่ากัน ไม่มีคำว่า หลัก/เสริม · ราคาเท่าเดิม
+  summaryOwnSlots: "เลือกพลอยเอง (รายเม็ด · ซ้ายไปขวา มองตรงหน้าแหวน)",
+  ownPerGemNote: "เลือกพลอยทีละเม็ด · ราคาเท่ากันไม่ว่าจะเลือกกี่สี",
+  ownPerGemOrderHint: "นับจากซ้ายไปขวา เมื่อมองตรงหน้าแหวน",
+  ownSlotBarLabel: "เลือกพลอยทีละเม็ด",
+  ownSlotAria: (n: number, name: string | null) => (name ? `เม็ดที่ ${n} ${name}` : `เม็ดที่ ${n} ยังไม่เลือก`),
+  ownSlotHeading: (n: number, name: string | null) => (name ? `เม็ดที่ ${n} · ${name}` : `เม็ดที่ ${n} · ยังไม่เลือก`),
+  ownSlotRowAria: (n: number) => `เลือกพลอยให้เม็ดที่ ${n}`,
+  ownFillAll: (name: string) => `ใส่${name}ทุกเม็ด`,
+  ownFillAllDone: (name: string) => `ใส่${name}ทุกเม็ดแล้ว`,
+  ownUndo: "เลิกทำ",
+  ownUndoDone: "เลิกทำแล้ว",
+  ownEmptyHintPerGem: "แตะพลอยหนึ่งชนิดเพื่อใส่ทุกเม็ดก่อน แล้วแตะเลขเม็ดเพื่อเปลี่ยนทีละเม็ด",
+  ownSlotsAnnounce: (n: number, name: string) => `เม็ดที่ ${n} เป็น${name}แล้ว`,
+  ownFitAnnounce: (count: number) => `ปรับพลอยให้พอดี ${count} เม็ด กลับไปแบบเดิมสีเดิมจะกลับมา`,
   // ชุดพลอย 1/2/3 (D1.2: "แบบ" = แบบแหวนอย่างเดียว · ชุดพลอยเรียก "ชุด n" ทุกที่รวม LINE — UX §12 ข้อ 3 รอเจ้าของยืนยัน)
   setLabel: (n: number) => `ชุด ${n}`,
   sameAs: (n: number) => `คู่เดียวกับชุด ${n} — สลับว่าเม็ดไหนเป็นพลอยหลัก`,

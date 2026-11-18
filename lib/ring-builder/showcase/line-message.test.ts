@@ -124,8 +124,12 @@ describe("ทุกแบบ × ทุก choice — ข้อความถู
         for (const size of [null, d.sizes[0], d.sizes[d.sizes.length - 1]]) {
           const m = buildShowcaseLineMessage({ designId: d.id, choice, size }) as string;
           expect(m).toContain(`แบบแหวน: ${d.name}\n`);
-          expect(m).toContain(`พลอยหลัก (${d.positions.main})`);
-          expect(m).toContain(`พลอยเสริม (${d.positions.sub})`);
+          // D1.2a: แบบแถว + เลือกเองที่ยังไม่เลือก = โหมดรายเม็ด → ไม่มีบรรทัดหลัก/เสริม (contract เปลี่ยน)
+          if (d.layout.kind === "row" && (choice as { unpicked?: boolean }).unpicked === true) expect(m).not.toMatch(/พลอยหลัก|พลอยเสริม/);
+          else {
+            expect(m).toContain(`พลอยหลัก (${d.positions.main})`);
+            expect(m).toContain(`พลอยเสริม (${d.positions.sub})`);
+          }
           if (d.extraCz > 0) expect(m).toContain(`CZ เล็ก ${d.extraCz} เม็ด`);
           else expect(m).not.toContain("CZ เล็ก");
           if (d.layout.kind === "row") expect(m).not.toMatch(/เม็ดบน|เม็ดล่าง|พลอยบน|พลอยล่าง/);

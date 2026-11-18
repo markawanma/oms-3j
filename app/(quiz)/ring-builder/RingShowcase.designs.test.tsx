@@ -96,11 +96,13 @@ describe("เปลี่ยนแบบ — ข้อความตามแ�
     await u.click(designRadio("bar7"));
     expect(screen.getByText("เม็ดกลาง = พลอยหลัก · เม็ดข้างที่เหลือ = พลอยเสริม")).toBeInTheDocument();
     await u.click(modeRadio("เลือกพลอยเอง"));
-    expect(screen.getByRole("radiogroup", { name: "พลอยหลัก (เม็ดกลาง)" })).toBeInTheDocument();
-    expect(screen.getByRole("radiogroup", { name: "พลอยเสริม (เม็ดข้าง)" })).toBeInTheDocument();
+    // D1.2a: แบบแถว + เลือกเอง = รายเม็ด (แถบเม็ด 1..N) แทน 2 แถวหลัก/เสริม
+    expect(within(screen.getByRole("radiogroup", { name: "เลือกพลอยทีละเม็ด" })).getAllByRole("radio")).toHaveLength(7);
+    expect(screen.queryByRole("radiogroup", { name: "พลอยหลัก (เม็ดกลาง)" })).toBeNull();
     await u.click(designRadio("channel6"));
-    expect(screen.getByRole("radiogroup", { name: "พลอยหลัก (เม็ดกลาง 2 เม็ด)" })).toBeInTheDocument();
-    expect(screen.getByText("เม็ดกลาง 2 เม็ด = พลอยหลัก · เม็ดข้างที่เหลือ = พลอยเสริม")).toBeInTheDocument();
+    expect(within(screen.getByRole("radiogroup", { name: "เลือกพลอยทีละเม็ด" })).getAllByRole("radio")).toHaveLength(6);
+    expect(screen.getByText("เลือกพลอยทีละเม็ด · ราคาเท่ากันไม่ว่าจะเลือกกี่สี")).toBeInTheDocument();
+    expect(screen.queryByText("เม็ดกลาง 2 เม็ด = พลอยหลัก · เม็ดข้างที่เหลือ = พลอยเสริม")).toBeNull();
   });
   it("เลือกพลอยเองแล้วสลับแบบ → พลอยคงเดิม · เลือกชนิดเดียวกัน 'ทุกเม็ด' (ไม่ใช่ 'ทั้ง 2 เม็ด')", async () => {
     const u = user();
@@ -108,10 +110,10 @@ describe("เปลี่ยนแบบ — ข้อความตามแ�
     await u.click(modeRadio("เลือกพลอยเอง"));
     await u.click(within(screen.getByRole("radiogroup", { name: "พลอยหลัก (เม็ดบน)" })).getByRole("radio", { name: "โกเมน" }));
     await u.click(designRadio("small7"));
-    expect(within(screen.getByRole("radiogroup", { name: "พลอยหลัก (เม็ดกลาง)" })).getByRole("radio", { name: "โกเมน" })).toHaveAttribute("aria-checked", "true");
-    expect(within(screen.getByRole("radiogroup", { name: "พลอยเสริม (เม็ดข้าง)" })).getByRole("radio", { name: "โกเมน" })).toHaveAttribute("aria-checked", "true");
+    // D1.2a: ไขว้ [โกเมน, โกเมน] → แถว 7 เม็ด = โกเมนทุกเม็ด
+    expect(within(screen.getByRole("radiogroup", { name: "เลือกพลอยให้เม็ดที่ 1" })).getByRole("radio", { name: "โกเมน" })).toHaveAttribute("aria-checked", "true");
     expect(screen.getByText("โกเมน ทุกเม็ด")).toBeInTheDocument();
-    expect(lineMessage()).toContain("พลอยหลัก (เม็ดกลาง): โกเมน · พลอยเสริม (เม็ดข้าง): โกเมน");
+    expect(lineMessage()).toContain("เม็ด 1–7: โกเมน (ทุกเม็ด)");
   });
   it("ชุดแนะนำคงเดิมข้ามแบบ (ชุด 2 แล้วสลับแบบ ยังเป็นชุด 2)", async () => {
     const u = user();

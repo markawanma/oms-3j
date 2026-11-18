@@ -2,6 +2,8 @@
 
 // RingShowcaseClient — หน้า "แบบของ 3J Jewelry" (/ring-builder): เลือกได้ 7 แบบแหวน (D1.2) · ราคา = config.ts · ชื่อ/ตำแหน่งพลอย/ไซซ์ = designs.ts · รูป = _assets
 // D1.2 state เพิ่ม: designId (แบบแหวน · เริ่มจาก `r`) — เปลี่ยนแบบไม่ล้าง พลอย/โหมด/เรื่อง/ไซซ์ดิบ · effectiveSize คำนวณใน render ที่เดียว (ไซซ์ดิบนอกช่วงของแบบ → null) แล้วส่งให้ SizePicker/สรุป/LINE ทุกจุด (Z2)
+// D1.2a (18 พ.ย. 69): แบบแถว 3–7 เม็ด โหมด "เลือกพลอยเอง" = เลือกสีทีละเม็ด (ซ้าย→ขวา · ทุกเม็ดเท่ากัน ราคาเท่าเดิม) · ไขว้ 2 เม็ดคงเดิม (บน/ล่าง)
+//   state `ownByCount` (จำสีต่อจำนวนเม็ด: 2 ไขว้ · 3/4/6/7 แถว) แทน `own` เดี่ยว — สลับแบบ 7→4→7 สีเดิมกลับมา · ครบทุกเม็ดหรือไม่มีเลย (ไม่มีเม็ดว่างครึ่งๆ)
 // D1.1 (17 พ.ย. 69): 2 โหมด "แบบแนะนำ" (แบบ 1/2/3 ตามเรื่องที่เลือก) | "เลือกพลอยเอง" (5 ชนิด × 2 เม็ด) · เปลี่ยนเรื่องบนหน้าแหวนได้โดยไม่ทำ quiz ใหม่
 // state (design §9.3): intention · recIndex 1–3 · own {top,bottom}|null · active rec|own · size + ผลวัดล่าสุดที่อ่านจาก localStorage หลัง mount — ไม่มี fetch/Server Action/DB (X5)
 //   สลับ active ไม่ล้างอีกฝั่ง · เปลี่ยนเรื่อง → recIndex=1, active=rec, own คงเดิม · own มีครบ 2 เม็ดหรือไม่มีเลย (ห้ามครึ่งเดียว)
@@ -13,8 +15,9 @@ import { useEffect, useMemo, useState } from "react";
 import { GEM_QUIZ_DISCLAIMER, type GemQuizIntention, type GemQuizStoneCode } from "@/lib/gem-quiz/config";
 import { getLastMeasuredSize, type LastMeasuredSize } from "@/lib/ring-builder/last-size";
 import { SHOWCASE_COPY, formatPriceThb, leadTimeLabel } from "@/lib/ring-builder/showcase/config";
-import { getShowcaseDesign, roleMainLabel, roleSubLabel, type ShowcaseDesignId } from "@/lib/ring-builder/showcase/designs";
+import { getShowcaseDesign, ownSlotCount, roleMainLabel, roleSubLabel, seedFromPair, type ShowcaseDesignId } from "@/lib/ring-builder/showcase/designs";
 import { DIRECT_STONE_LABEL, isShowcaseSize, type ShowcaseChoice } from "@/lib/ring-builder/showcase/line-message";
+import { fillAll, fitOwnToCount, formatOwnSlots, ownSlotsAria } from "@/lib/ring-builder/showcase/own-slots";
 import { buildShowcaseUrl, type GemTop3, type IntentionTable, type OwnGems, type ShowcaseParams } from "@/lib/ring-builder/showcase/quiz-link";
 import { buildShowcaseSets, intentionOnlyTop3, stoneLabel } from "@/lib/ring-builder/showcase/sets";
 import { SHOWCASE_PHOTOS } from "./_assets";
@@ -29,6 +32,14 @@ import { RingStage } from "./_components/RingStage";
 import { SizePicker } from "./_components/SizePicker";
 
 type RecIndex = 1 | 2 | 3;
+/** สีที่เลือกเอง จำไว้ต่อ "จำนวนเม็ด" (2 = ไขว้ [บน, ล่าง] · 3/4/6/7 = แถว ซ้าย→ขวา) — แบบที่จำนวนเท่ากันใช้ชุดเดียวกัน */
+type OwnByCount = Partial<Record<number, readonly GemQuizStoneCode[]>>;
+
+function initialOwnByCount(params: ShowcaseParams): OwnByCount {
+  const d = getShowcaseDesign(params.ring);
+  if (d.layout.kind === "row") return params.ownSlots ? { [ownSlotCount(d)]: params.ownSlots } : {};
+  return params.own ? { 2: [params.own.top, params.own.bottom] } : {};
+}
 
 export function RingShowcaseClient({ params }: { params: ShowcaseParams }) {
   // ค่าตอนโหลดหน้า (ไม่เปลี่ยนตลอด session) — ตารางจาก quiz + "เรื่องที่ตอบ" ใช้ตัดสินป้าย (Y6)
@@ -38,8 +49,11 @@ export function RingShowcaseClient({ params }: { params: ShowcaseParams }) {
   const legacyTop3: GemTop3 | null = params.top3;
 
   const [intention, setIntention] = useState<GemQuizIntention | null>(params.intention);
-  const [own, setOwn] = useState<OwnGems | null>(params.own);
-  const [active, setActive] = useState<ShowcaseMode>(params.design === "own" && params.own ? "own" : "rec");
+  const [ownByCount, setOwnByCount] = useState<OwnByCount>(() => initialOwnByCount(params));
+  const [selectedSlot, setSelectedSlot] = useState(0);
+  // "เลิกทำ" ของ "ใส่ X ทุกเม็ด" — snapshot 1 ชั้น · หายเมื่อแก้อย่างอื่น
+  const [undoSnap, setUndoSnap] = useState<{ count: number; codes: readonly GemQuizStoneCode[] } | null>(null);
+  const [active, setActive] = useState<ShowcaseMode>(() => (params.design === "own" && Object.keys(initialOwnByCount(params)).length > 0 ? "own" : "rec"));
 
   // top3 ของแบบแนะนำ: เรื่องที่เลือก → t[i] (ถ้ามีตาราง) หรืออันดับตามเรื่องล้วน · ยังไม่เลือกเรื่อง → ลิงก์ g เดิม · ไม่มีเลย → เข้าตรง
   const recTop3: GemTop3 | null = useMemo(() => {
@@ -74,17 +88,32 @@ export function RingShowcaseClient({ params }: { params: ShowcaseParams }) {
   const effectiveSize: number | null = size !== null && isShowcaseSize(size, designId) ? size : null;
   const outOfRangeSize: number | null = size !== null && effectiveSize === null ? size : null;
 
+  const isRow = design.layout.kind === "row";
+  const ownCount = ownSlotCount(design);
+  const ownCodes: readonly GemQuizStoneCode[] | null = ownByCount[ownCount] ?? null;
+  const slot = Math.min(selectedSlot, ownCount - 1);
+  const own: OwnGems | null = !isRow && ownCodes ? { top: ownCodes[0], bottom: ownCodes[1] } : null;
+  const ownSlots = isRow ? ownCodes : null;
+
   const currentSet = sets ? (sets.find((s) => s.index === recIndex) ?? sets[0]) : null;
 
   // พลอยที่แสดงบนแหวน + ค่าที่ส่งเข้า LINE/สรุป (ค่าเดียวกัน)
   let choice: ShowcaseChoice = active === "own" ? { kind: "direct", unpicked: true } : { kind: "direct" };
-  if (active === "own" && own) choice = { kind: "own", top: own.top, bottom: own.bottom };
+  if (active === "own" && ownSlots) choice = { kind: "ownSlots", codes: ownSlots };
+  else if (active === "own" && own) choice = { kind: "own", top: own.top, bottom: own.bottom };
   else if (active === "rec" && currentSet) choice = { kind: "rec", index: currentSet.index, top: currentSet.top, bottom: currentSet.bottom };
-  const topCode: GemQuizStoneCode | null = choice.kind === "direct" ? null : choice.top;
-  const bottomCode: GemQuizStoneCode | null = choice.kind === "direct" ? null : choice.bottom;
+  const topCode: GemQuizStoneCode | null = choice.kind === "direct" || choice.kind === "ownSlots" ? null : choice.top;
+  const bottomCode: GemQuizStoneCode | null = choice.kind === "direct" || choice.kind === "ownSlots" ? null : choice.bottom;
   const topLabel = topCode ? stoneLabel(topCode) : DIRECT_STONE_LABEL;
   const bottomLabel = bottomCode ? stoneLabel(bottomCode) : DIRECT_STONE_LABEL;
-  const stageAria = `ภาพจำลอง${design.name} 3 มิติ ${roleMainLabel(design)} ${topLabel} ${roleSubLabel(design)} ${bottomLabel}${design.extraCz > 0 ? ` CZ เล็ก ${design.extraCz} เม็ด` : ""}`;
+  // รายเม็ด: aria ใช้ helper เดียวกับ LINE/สรุป · แถว+เลือกเองที่ยังไม่เลือก: ไม่มีคำหลัก/เสริม
+  const slotRows = choice.kind === "ownSlots" ? formatOwnSlots(choice.codes) : null;
+  const stageAria =
+    slotRows !== null
+      ? `ภาพจำลอง${design.name} 3 มิติ ${ownSlotsAria(slotRows)}`
+      : active === "own" && isRow
+        ? `ภาพจำลอง${design.name} 3 มิติ ${SHOWCASE_COPY.gemNone}`
+        : `ภาพจำลอง${design.name} 3 มิติ ${roleMainLabel(design)} ${topLabel} ${roleSubLabel(design)} ${bottomLabel}${design.extraCz > 0 ? ` CZ เล็ก ${design.extraCz} เม็ด` : ""}`;
   const photos = SHOWCASE_PHOTOS[designId];
 
   // เขียน state กลับ URL (ไม่เพิ่ม history) — เก็บ t + q เสมอเมื่อมีตาราง: reload/แชร์ได้อันดับชุดเดิม และป้าย "จากแบบทดสอบ" ตัดสินจาก i === q (Y6)
@@ -94,6 +123,7 @@ export function RingShowcaseClient({ params }: { params: ShowcaseParams }) {
     answered: answeredIntention,
     legacyTop3: intention === null ? legacyTop3 : null,
     own,
+    ownSlots,
     active,
     recIndex: sets ? recIndex : 1,
     ring: designId,
@@ -109,9 +139,9 @@ export function RingShowcaseClient({ params }: { params: ShowcaseParams }) {
 
   function changeMode(next: ShowcaseMode) {
     if (next === active) return;
-    if (next === "own" && own === null && currentSet) {
-      // เปิดเลือกเองครั้งแรก: seed จากแบบที่ดูอยู่ (ผู้ใช้เห็นของเดิมแล้วแก้ต่อได้)
-      setOwn({ top: currentSet.top, bottom: currentSet.bottom });
+    if (next === "own" && ownCodes === null && currentSet) {
+      // เปิดเลือกเองครั้งแรก: seed จากแบบที่ดูอยู่ (ผู้ใช้เห็นของเดิมแล้วแก้ต่อได้) · แถว = เม็ดกลางหลัก ที่เหลือเสริม ตรงกับที่เห็น
+      setOwnByCount((p) => ({ ...p, [ownCount]: isRow ? seedFromPair(ownCount, currentSet.top, currentSet.bottom) : [currentSet.top, currentSet.bottom] }));
     }
     setActive(next);
   }
@@ -120,8 +150,20 @@ export function RingShowcaseClient({ params }: { params: ShowcaseParams }) {
     if (next === designId) return;
     setDesignId(next);
     const nextDesign = getShowcaseDesign(next);
+    const nextCount = ownSlotCount(nextDesign);
     const sizeOut = size !== null && !isShowcaseSize(size, next);
-    setAnnounce(SHOWCASE_COPY.designAnnounce(nextDesign.name) + (sizeOut ? SHOWCASE_COPY.designAnnounceSizeOut(size) : ""));
+    // เลือกเองอยู่ + จำนวนเม็ดเปลี่ยน: จำสีเดิมไว้ · จำนวนใหม่ที่ยังไม่เคยแก้ = จัดกึ่งกลางจากที่ดูอยู่ (A5) · กลับมาจำนวนเดิม สีเดิมกลับมาเป๊ะ
+    const countChanged = active === "own" && nextCount !== ownCount;
+    if (countChanged && ownCodes && ownByCount[nextCount] === undefined) {
+      setOwnByCount((p) => ({ ...p, [nextCount]: fitOwnToCount(ownCodes, nextCount) }));
+    }
+    setSelectedSlot((s) => Math.min(s, nextCount - 1));
+    setUndoSnap(null);
+    setAnnounce(
+      SHOWCASE_COPY.designAnnounce(nextDesign.name) +
+        (sizeOut ? SHOWCASE_COPY.designAnnounceSizeOut(size) : "") +
+        (countChanged && ownCodes ? ` · ${SHOWCASE_COPY.ownFitAnnounce(nextCount)}` : "")
+    );
   }
 
   function changeIntention(next: GemQuizIntention) {
@@ -134,10 +176,39 @@ export function RingShowcaseClient({ params }: { params: ShowcaseParams }) {
 
   // own ต้องครบ 2 เม็ดหรือไม่มีเลย — แตะเม็ดแรกตอนว่าง = ตั้งทั้งสองเป็นพลอยนั้น
   function pickTop(code: GemQuizStoneCode) {
-    setOwn((prev) => (prev ? { top: code, bottom: prev.bottom } : { top: code, bottom: code }));
+    setUndoSnap(null);
+    setOwnByCount((p) => ({ ...p, 2: p[2] ? [code, p[2][1]] : [code, code] }));
   }
   function pickBottom(code: GemQuizStoneCode) {
-    setOwn((prev) => (prev ? { top: prev.top, bottom: code } : { top: code, bottom: code }));
+    setUndoSnap(null);
+    setOwnByCount((p) => ({ ...p, 2: p[2] ? [p[2][0], code] : [code, code] }));
+  }
+
+  // แถว: แตะพลอย = เปลี่ยนเม็ดที่เลือกอยู่ (ไม่เลื่อนเอง) · แตะครั้งแรกตอนยังไม่เคยเลือก = ใส่ทุกเม็ดด้วยพลอยนั้น (ครบทุกเม็ดหรือไม่มีเลย)
+  function pickSlotGem(code: GemQuizStoneCode) {
+    setUndoSnap(null);
+    const name = stoneLabel(code);
+    if (ownCodes === null) {
+      setOwnByCount((p) => ({ ...p, [ownCount]: fillAll(ownCount, code) }));
+      setAnnounce(SHOWCASE_COPY.ownFillAllDone(name));
+      return;
+    }
+    const next = [...ownCodes];
+    next[slot] = code;
+    setOwnByCount((p) => ({ ...p, [ownCount]: next }));
+    setAnnounce(SHOWCASE_COPY.ownSlotsAnnounce(slot + 1, name));
+  }
+  function fillAllSlots(code: GemQuizStoneCode) {
+    if (ownCodes) setUndoSnap({ count: ownCount, codes: ownCodes });
+    setOwnByCount((p) => ({ ...p, [ownCount]: fillAll(ownCount, code) }));
+    setAnnounce(SHOWCASE_COPY.ownFillAllDone(stoneLabel(code)));
+  }
+  function undoFill() {
+    if (!undoSnap || undoSnap.count !== ownCount) return;
+    const restored = undoSnap.codes;
+    setOwnByCount((p) => ({ ...p, [undoSnap.count]: restored }));
+    setUndoSnap(null);
+    setAnnounce(SHOWCASE_COPY.ownUndoDone);
   }
 
   return (
@@ -150,6 +221,7 @@ export function RingShowcaseClient({ params }: { params: ShowcaseParams }) {
               design={design}
               top={topCode}
               bottom={bottomCode}
+              slots={choice.kind === "ownSlots" ? choice.codes : null}
               ariaLabel={stageAria}
               photo={photos[0]}
               photoAlt={photos.length > 0 ? photoAlt(design.name, 0, photos.length) : design.name}
@@ -178,7 +250,26 @@ export function RingShowcaseClient({ params }: { params: ShowcaseParams }) {
               <GemSetPicker design={design} sets={sets} selectedIndex={recIndex} onSelect={setRecIndex} badgeKind={badgeKind} basisNote={basisNote} />
             </>
           ) : (
-            <OwnGemPicker design={design} own={own} onPickTop={pickTop} onPickBottom={pickBottom} />
+            <OwnGemPicker
+              design={design}
+              own={own}
+              onPickTop={pickTop}
+              onPickBottom={pickBottom}
+              perGem={
+                isRow
+                  ? {
+                      codes: ownSlots,
+                      count: ownCount,
+                      selected: slot,
+                      onSelect: setSelectedSlot,
+                      onPick: pickSlotGem,
+                      onFillAll: fillAllSlots,
+                      onUndo: undoFill,
+                      canUndo: undoSnap !== null && undoSnap.count === ownCount,
+                    }
+                  : undefined
+              }
+            />
           )}
         </div>
 

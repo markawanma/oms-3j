@@ -9,7 +9,8 @@ import { GEM_QUIZ_STONE_BY_CODE, type GemQuizStoneCode } from "@/lib/gem-quiz/co
 import { lineOaMessageUrl } from "@/lib/shop/line";
 import { CZ_WHITE, LINE_COPY } from "../config";
 import { SHOWCASE_COPY, formatPriceThb, leadTimeLabel } from "./config";
-import { findShowcaseDesign, roleMainLabel, roleSubLabel, type ShowcaseDesign, type ShowcaseDesignId } from "./designs";
+import { findShowcaseDesign, ownSlotCount, roleMainLabel, roleSubLabel, type ShowcaseDesign, type ShowcaseDesignId } from "./designs";
+import { formatOwnSlots, isOwnSlots, ownSlotLines, type OwnSlotRow } from "./own-slots";
 import { isStoneCode } from "./quiz-link";
 
 /** สิ่งที่ลูกค้าเลือก — ใช้ทั้งการ์ดสรุปบนจอและข้อความ LINE (จุดเดียว ไม่มีทางไม่ตรงกัน) · top = พลอยหลัก · bottom = พลอยเสริม */
@@ -19,7 +20,9 @@ export type ShowcaseChoice =
   /** ชุดแนะนำ 1..3 */
   | { kind: "rec"; index: number; top: GemQuizStoneCode; bottom: GemQuizStoneCode }
   /** เลือกพลอยเอง */
-  | { kind: "own"; top: GemQuizStoneCode; bottom: GemQuizStoneCode };
+  | { kind: "own"; top: GemQuizStoneCode; bottom: GemQuizStoneCode }
+  /** เลือกพลอยเองรายเม็ด (D1.2a · แบบแถวเท่านั้น) — ซ้าย→ขวา ยาวเท่าจำนวนเม็ดของแบบ · ทุกเม็ดเท่ากัน ไม่มีหลัก/เสริม */
+  | { kind: "ownSlots"; codes: readonly GemQuizStoneCode[] };
 
 export interface ShowcaseLineInput {
   /** แบบแหวน — ต้องอยู่ใน whitelist (ไม่งั้น null) */
@@ -40,12 +43,20 @@ export interface ResolvedChoice {
   gemsLine: string;
   mainLabel: string;
   subLabel: string;
+  /** โหมดรายเม็ด: แถวสรุป "เม็ด 1–2 / โกเมน" (helper เดียวกับ LINE/aria) — มีค่า = ไม่ใช้ mainLabel/subLabel */
+  slotRows?: OwnSlotRow[];
 }
 
 /** ตรวจ choice (ค่าจากภายนอก type system) แล้วคืนบรรทัดพลอย + ชื่อพลอยหลัก/เสริม · ผิดอะไรก็ตาม = null */
-export function resolveChoice(choice: unknown): ResolvedChoice | null {
+export function resolveChoice(choice: unknown, design?: ShowcaseDesign): ResolvedChoice | null {
   if (typeof choice !== "object" || choice === null) return null;
-  const c = choice as { kind?: unknown; index?: unknown; top?: unknown; bottom?: unknown; unpicked?: unknown };
+  const c = choice as { kind?: unknown; index?: unknown; top?: unknown; bottom?: unknown; unpicked?: unknown; codes?: unknown };
+  if (c.kind === "ownSlots") {
+    // ต้องรู้แบบ: แถวเท่านั้น + จำนวนรหัสเท่าจำนวนเม็ด + ทุกรหัสใน whitelist · ไม่ครบ = null (ไม่ fallback · เหมือน Z5)
+    if (!design || design.layout.kind !== "row" || !isOwnSlots(c.codes, ownSlotCount(design))) return null;
+    const slotRows = formatOwnSlots(c.codes);
+    return slotRows ? { gemsLine: SHOWCASE_COPY.summaryOwnSlots, mainLabel: "", subLabel: "", slotRows } : null;
+  }
   if (c.kind === "direct") {
     const label = c.unpicked === true ? SHOWCASE_COPY.gemNone : CZ_WHITE.name;
     return { gemsLine: label, mainLabel: label, subLabel: label };
@@ -69,14 +80,17 @@ export function buildShowcaseLineMessage(input: ShowcaseLineInput): string | nul
   const design = findShowcaseDesign((input as { designId?: unknown } | null)?.designId);
   if (!design) return null;
   if (input.size !== null && !isShowcaseSize(input.size, design.id)) return null;
-  const resolved = resolveChoice(input.choice);
+  const resolved = resolveChoice(input.choice, design);
   if (!resolved) return null;
+  // แบบแถวที่ยังไม่ได้เลือกพลอยในโหมดเลือกเอง: ไม่พิมพ์บรรทัดหลัก/เสริม (ทุกเม็ดเท่ากัน — "ยังไม่ได้เลือกพลอยสี" พอแล้ว)
+  const unpickedRow = design.layout.kind === "row" && (input.choice as { kind?: unknown; unpicked?: unknown }).unpicked === true;
+  const stoneLines = resolved.slotRows ? ownSlotLines(resolved.slotRows) : unpickedRow ? [] : [stonesLine(design, resolved)];
   const sizeLine = input.size === null ? `ไซซ์: ${LINE_COPY.sizeAdminCheck}` : `ไซซ์: เบอร์ ${input.size}`;
   return [
     LINE_COPY.greeting,
     `แบบแหวน: ${design.name}`,
     `พลอย: ${resolved.gemsLine}`,
-    stonesLine(design, resolved),
+    ...stoneLines,
     sizeLine,
     `ราคา ${formatPriceThb()} (${leadTimeLabel()})`,
     LINE_COPY.closing,

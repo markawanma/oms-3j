@@ -107,21 +107,20 @@ describe("สลับแบบบน renderer เดิม", () => {
     await u.click(designRadio("channel4"));
     expect(h.renderer.setRing).not.toHaveBeenCalled();
     await u.click(screen.getByRole("radio", { name: "เลือกพลอยเอง" }));
-    await u.click(within(screen.getByRole("radiogroup", { name: "พลอยหลัก (เม็ดกลาง 2 เม็ด)" })).getByRole("radio", { name: "อเมทิสต์" }));
+    // D1.2a: แตะพลอยครั้งแรก = ใส่ทุกเม็ด (รายเม็ด)
+    await u.click(within(screen.getByRole("radiogroup", { name: "เลือกพลอยให้เม็ดที่ 1" })).getByRole("radio", { name: "อเมทิสต์" }));
     expect(h.renderer.setRing).not.toHaveBeenCalled();
     const t = lastTints();
     expect(t).toHaveLength(4);
-    // ฝังล็อค 4: เม็ดกลาง 2 เม็ด (index 1,2) = อเมทิสต์ · ที่เหลือ = พลอยเสริม (ระบบใส่ชนิดเดียวกัน = อเมทิสต์ด้วย)
+    // ฝังล็อค 4: ทุกเม็ด = อเมทิสต์
     expect(t.every((x) => !x.cz)).toBe(true);
   });
 
   it("สีตามตำแหน่ง: แถวคี่ 1 เม็ดกลาง · แถวคู่ 2 เม็ดกลาง = พลอยหลัก ที่เหลือ = พลอยเสริม", async () => {
     const u = userEvent.setup();
-    render(<RingShowcaseClient params={EMPTY_SHOWCASE_PARAMS} />);
+    // D1.2a: โหมดแบบแนะนำยังเป็น หลัก (เม็ดกลาง) / เสริม (ที่เหลือ) — โหมดเลือกเองแถวเป็นรายเม็ด (ดูเทสต์ถัดไป)
+    render(<RingShowcaseClient params={{ ...EMPTY_SHOWCASE_PARAMS, top3: ["garnet", "peridot", "citrine"] }} />);
     await mounted();
-    await u.click(screen.getByRole("radio", { name: "เลือกพลอยเอง" }));
-    await u.click(within(screen.getByRole("radiogroup", { name: "พลอยหลัก (เม็ดบน)" })).getByRole("radio", { name: "โกเมน" })); // หลัก+เสริม = โกเมน
-    await u.click(within(screen.getByRole("radiogroup", { name: "พลอยเสริม (เม็ดล่าง)" })).getByRole("radio", { name: "เพอริดอท" }));
     for (const [id, n] of [
       ["trinity", 3],
       ["scroll6", 6],
@@ -136,6 +135,38 @@ describe("สลับแบบบน renderer เดิม", () => {
       expect(new Set(garnet.map((x) => x.rgb.join(","))).size).toBe(1);
       expect(new Set(peridot.map((x) => x.rgb.join(","))).size).toBe(1);
       expect(garnet[0].rgb.join(",")).not.toBe(peridot[0].rgb.join(","));
+    }
+  });
+});
+
+describe("D1.2a เลือกรายเม็ด → สีรายเม็ดบน 3D", () => {
+  it("แตะพลอยครั้งแรก = ทุกเม็ดสีนั้น · เปลี่ยนเม็ดที่ 4 = เฉพาะตำแหน่ง 4 (ซ้าย→ขวา) เปลี่ยนสี · ไม่ setRing", async () => {
+    const u = userEvent.setup();
+    render(<RingShowcaseClient params={{ ...EMPTY_SHOWCASE_PARAMS, ring: "bar7" }} />);
+    await mounted();
+    await u.click(screen.getByRole("radio", { name: "เลือกพลอยเอง" }));
+    await u.click(within(screen.getByRole("radiogroup", { name: "เลือกพลอยให้เม็ดที่ 1" })).getByRole("radio", { name: "โกเมน" }));
+    const all = lastTints();
+    expect(all).toHaveLength(7);
+    expect(new Set(all.map((x) => x.rgb.join(","))).size).toBe(1);
+    expect(all.every((x) => !x.cz)).toBe(true);
+    await u.click(within(screen.getByRole("radiogroup", { name: "เลือกพลอยทีละเม็ด" })).getByRole("radio", { name: /^เม็ดที่ 4 / }));
+    await u.click(within(screen.getByRole("radiogroup", { name: "เลือกพลอยให้เม็ดที่ 4" })).getByRole("radio", { name: "ซิทริน" }));
+    const t = lastTints();
+    expect(t).toHaveLength(7);
+    t.forEach((x, i) => (i === 3 ? expect(x.rgb).not.toEqual(all[0].rgb) : expect(x.rgb).toEqual(all[0].rgb)));
+    expect(h.renderer.setRing).not.toHaveBeenCalled();
+  });
+  it("ยังไม่เลือก (เลือกเองเปล่า) = CZ ขาวทุกเม็ด · สลับแบบ = ความยาว tints ตามโมเดลเสมอ", async () => {
+    const u = userEvent.setup();
+    render(<RingShowcaseClient params={{ ...EMPTY_SHOWCASE_PARAMS, ring: "trinity" }} />);
+    await mounted();
+    await u.click(screen.getByRole("radio", { name: "เลือกพลอยเอง" }));
+    expect(lastTints().every((x) => x.cz)).toBe(true);
+    await u.click(within(screen.getByRole("radiogroup", { name: "เลือกพลอยให้เม็ดที่ 1" })).getByRole("radio", { name: "เพอริดอท" }));
+    for (const [id, n] of [["bar7", 7], ["channel4", 4], ["scroll6", 6], ["trinity", 3]] as const) {
+      await u.click(designRadio(id));
+      expect(lastTints()).toHaveLength(n);
     }
   });
 });

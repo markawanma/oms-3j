@@ -6,7 +6,7 @@
 // รับ designId + รหัสพลอยหลัก/เสริม (null = CZ ขาว) · สลับแบบ = renderer.setRing() บน WebGL context เดิม (ไม่ remount → ไม่สร้าง context ใหม่ ไม่กระพริบ)
 // ผิดพลาด/ context lost → เรียก onUnsupported ให้ UI สลับเป็นรูปจริง/ภาพประกอบ · สร้างโมเดลของแบบนั้นไม่ได้ → onDesignFailed(id) (stage แสดง fallback + ปุ่มลองอีกครั้ง)
 import { useEffect, useRef } from "react";
-import { designTints } from "@/lib/ring-builder/viewer/gem-colors";
+import { designTints, slotTints } from "@/lib/ring-builder/viewer/gem-colors";
 import { createRingRenderer, type RingRenderer, type UnsupportedReason } from "@/lib/ring-builder/viewer/gl-renderer";
 import { getShowcaseRing } from "@/lib/ring-builder/viewer/showcase-rings";
 import type { GemQuizStoneCode } from "@/lib/gem-quiz/config";
@@ -20,6 +20,8 @@ export interface RingViewerProps {
   top: GemQuizStoneCode | null;
   /** พลอยเสริม (null = CZ ขาว) */
   bottom: GemQuizStoneCode | null;
+  /** D1.2a: สีรายเม็ดของแบบแถว (ซ้าย→ขวา) — มีค่า = ใช้แทน top/bottom · จำนวนไม่ตรงแบบ = CZ ขาว (ไม่ crash) */
+  slots?: readonly GemQuizStoneCode[] | null;
   /** สรุปพลอยปัจจุบันสำหรับ screen reader */
   ariaLabel: string;
   onReady?: () => void;
@@ -30,14 +32,18 @@ export interface RingViewerProps {
   showReset?: boolean;
 }
 
-export default function RingViewer({ designId, top, bottom, ariaLabel, onReady, onUnsupported, onDesignFailed, showReset = false }: RingViewerProps) {
+function tintsFor(designId: ShowcaseDesignId, top: GemQuizStoneCode | null, bottom: GemQuizStoneCode | null, slots: readonly GemQuizStoneCode[] | null | undefined) {
+  return slots ? slotTints(designId, slots) : designTints(designId, top, bottom);
+}
+
+export default function RingViewer({ designId, top, bottom, slots, ariaLabel, onReady, onUnsupported, onDesignFailed, showReset = false }: RingViewerProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const rendererRef = useRef<RingRenderer | null>(null);
   // แบบที่ renderer ถือโมเดลอยู่ตอนนี้ — ใช้ข้ามการ setRing ซ้ำตอน mount (effect ตามหลังการสร้าง)
   const shownDesign = useRef<ShowcaseDesignId | null>(null);
   // ค่าล่าสุดของ props ที่ effect ตอน mount ต้องใช้ โดยไม่ให้ตัววาดถูกสร้างใหม่ทุกครั้งที่สีเปลี่ยน
-  const latest = useRef({ designId, top, bottom, onReady, onUnsupported, onDesignFailed });
-  latest.current = { designId, top, bottom, onReady, onUnsupported, onDesignFailed };
+  const latest = useRef({ designId, top, bottom, slots, onReady, onUnsupported, onDesignFailed });
+  latest.current = { designId, top, bottom, slots, onReady, onUnsupported, onDesignFailed };
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -60,7 +66,7 @@ export default function RingViewer({ designId, top, bottom, ariaLabel, onReady, 
         onReady: () => latest.current.onReady?.(),
         onUnsupported: (reason) => latest.current.onUnsupported?.(reason),
       });
-      renderer.setTints(designTints(startId, latest.current.top, latest.current.bottom));
+      renderer.setTints(tintsFor(startId, latest.current.top, latest.current.bottom, latest.current.slots));
       rendererRef.current = renderer;
       shownDesign.current = startId;
     } catch {
@@ -83,21 +89,22 @@ export default function RingViewer({ designId, top, bottom, ariaLabel, onReady, 
     try {
       r.setRing(getShowcaseRing(designId));
       shownDesign.current = designId;
-      r.setTints(designTints(designId, latest.current.top, latest.current.bottom));
+      r.setTints(tintsFor(designId, latest.current.top, latest.current.bottom, latest.current.slots));
     } catch {
       latest.current.onDesignFailed?.(designId);
     }
   }, [designId]);
 
+  const slotsKey = slots ? slots.join(".") : "";
   useEffect(() => {
     // แบบที่ยังไม่ถูกแสดง (สลับล้มเหลว) ไม่ตั้งสี — กันความยาว tints ไม่ตรงกับโมเดลที่ถืออยู่
     if (shownDesign.current !== designId) return;
     try {
-      rendererRef.current?.setTints(designTints(designId, top, bottom));
+      rendererRef.current?.setTints(tintsFor(designId, top, bottom, latest.current.slots));
     } catch {
       latest.current.onDesignFailed?.(designId);
     }
-  }, [designId, top, bottom]);
+  }, [designId, top, bottom, slotsKey]);
 
   return (
     <>

@@ -100,6 +100,17 @@ export function mainIndexes(n: number): number[] {
   return n % 2 === 1 ? [(n - 1) / 2] : [n / 2 - 1, n / 2];
 }
 
+/** จำนวนเม็ดที่ลูกค้าเลือกสีได้ (D1.2a): ไขว้ = 2 (บน/ล่าง) · แถว = จำนวนเม็ดของแบบ · ใช้เป็นคีย์จำสีต่อจำนวนเม็ด */
+export function ownSlotCount(d: ShowcaseDesign): number {
+  return d.layout.kind === "row" ? d.layout.stoneCount : 2;
+}
+
+/** ชุดรายเม็ดจากคู่ (หลัก, เสริม): เม็ดกลาง (mainIndexes) = หลัก ที่เหลือ = เสริม — ตรงกับที่โหมดแบบแนะนำแสดง */
+export function seedFromPair<T>(n: number, main: T, secondary: T): T[] {
+  const mains = new Set(mainIndexes(n));
+  return Array.from({ length: n }, (_, i) => (mains.has(i) ? main : secondary));
+}
+
 export function sizeRange(id: ShowcaseDesignId): { min: number; max: number } {
   const s = getShowcaseDesign(id).sizes;
   return { min: s[0], max: s[s.length - 1] };

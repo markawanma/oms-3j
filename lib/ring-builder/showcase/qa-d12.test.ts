@@ -102,8 +102,13 @@ describe("Case 3: LINE message matrix = designs x choices x sizes", () => {
           if (choice.kind === "own" || choice.kind === "direct") expect(m).not.toMatch(/ชุด \d/);
           if (choice.kind === "rec") expect(m).toContain(`ชุด ${choice.index}`);
           expect(/CZ เล็ก 2 เม็ด/.test(m)).toBe(d.id === "bypass2");
-          expect(m).toContain(`พลอยหลัก (${d.positions.main})`);
-          expect(m).toContain(`พลอยเสริม (${d.positions.sub})`);
+          // D1.2a: แบบแถว + เลือกเองที่ยังไม่เลือก = โหมดรายเม็ด → ไม่มีบรรทัดหลัก/เสริม (contract เปลี่ยน)
+          const unpickedRow = d.layout.kind === "row" && choice.kind === "direct" && choice.unpicked === true;
+          if (unpickedRow) expect(m).not.toMatch(/พลอยหลัก|พลอยเสริม/);
+          else {
+            expect(m).toContain(`พลอยหลัก (${d.positions.main})`);
+            expect(m).toContain(`พลอยเสริม (${d.positions.sub})`);
+          }
           if (d.id !== "bypass2") expect(m).not.toMatch(/เม็ดบน|เม็ดล่าง|ทั้ง 2 เม็ด/);
           expect(m).toContain(size === null ? "รอแอดมินช่วยเช็ก" : `เบอร์ ${size}`);
         }
