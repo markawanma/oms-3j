@@ -26,7 +26,7 @@ function lineMessage(): string {
 const modeRadio = (name: string) => screen.getByRole("radio", { name });
 const gemRow = (name: string) => within(screen.getByRole("radiogroup", { name }));
 
-describe("page: param ผสมกัน → ไม่ throw · ไม่มีค่าดิบถึง DOM/LINE · ราคา 800", () => {
+describe("page: param ผสมกัน → ไม่ throw · ไม่มีค่าดิบถึง DOM/LINE · ราคา 890", () => {
   const combos: Record<string, unknown>[] = [
     { g: "garnet.citrine.peridot", t: "gac.acp.cpb.bgc.pab.gpa" },
     { g: "garnet.citrine.peridot", t: "gac.acp.cpb.bgc.pab.gpa", i: "love", c: "garnet.citrine", d: "own" },
@@ -50,7 +50,7 @@ describe("page: param ผสมกัน → ไม่ throw · ไม่มี�
     expect(html).not.toContain("<b>x</b>");
     expect(container.textContent).not.toMatch(/undefined|NaN|\[object|เพชร/);
     const msg = lineMessage();
-    expect(msg).toContain("ราคา 800 บาท");
+    expect(msg).toContain("ราคา 890 บาท");
     expect(msg).not.toContain("xxxxxxxx");
     expect(window.location.search).not.toContain("xxxxxxxx");
     expect(window.location.search).not.toMatch(/price|size|src|%3C|<|😀|คำไทย/);
@@ -121,14 +121,14 @@ describe("state ข้ามโหมด", () => {
     await u.click(screen.getByRole("radio", { name: "ความรัก & เสน่ห์" }));
     expect(window.location.search).toContain("d=2");
   });
-  it("ราคา 800 ทุกสถานะของ 25 คู่ × 2 โหมด (LINE + หน้าจอ) และไม่มีราคาอื่นบนจอ", async () => {
+  it("ราคา 890 ทุกสถานะของ 25 คู่ × 2 โหมด (LINE + หน้าจอ) และไม่มีราคาอื่นบนจอ", async () => {
     const u = userEvent.setup();
     const { container } = render(<RingShowcaseClient params={EMPTY_SHOWCASE_PARAMS} />);
     await u.click(modeRadio("เลือกพลอยเอง"));
     for (const a of GEM_QUIZ_STONES) {
       await u.click(gemRow("พลอยบน (เม็ดหลัก)").getByRole("radio", { name: a.labelTh }));
-      expect(lineMessage()).toContain("ราคา 800 บาท");
-      expect([...(container.textContent ?? "").matchAll(/(\d[\d,]*)\s*บาท/g)].map((m) => m[1]).every((p) => p === "800")).toBe(true);
+      expect(lineMessage()).toContain("ราคา 890 บาท");
+      expect([...(container.textContent ?? "").matchAll(/(\d[\d,]*)\s*บาท/g)].map((m) => m[1]).every((p) => p === "890")).toBe(true);
     }
   });
 });

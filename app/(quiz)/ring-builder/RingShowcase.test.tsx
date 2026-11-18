@@ -38,10 +38,10 @@ function lineMessage(): string {
 }
 
 describe("เข้าตรง (ไม่มี g) — โหมด CZ ขาว", () => {
-  it("แสดงชื่อแบบ + 800 บาท + การ์ดชวนทำ quiz แทนแบบ 1/2/3 · ไม่มี radio ของพลอย", () => {
+  it("แสดงชื่อแบบ + 890 บาท + การ์ดชวนทำ quiz แทนแบบ 1/2/3 · ไม่มี radio ของพลอย", () => {
     render(<RingShowcaseClient params={EMPTY_SHOWCASE_PARAMS} />);
     expect(screen.getByRole("heading", { level: 1, name: "แหวนไขว้พลอยไข่ 2 เม็ด" })).toBeInTheDocument();
-    expect(screen.getAllByText("800 บาท").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("890 บาท").length).toBeGreaterThan(0);
     expect(screen.getByText(/พรีออเดอร์ ทำภายใน 21 วัน/)).toBeInTheDocument();
     const quiz = screen.getByRole("link", { name: "ทำแบบทดสอบ 1 นาที" });
     expect(quiz).toHaveAttribute("href", "/gem-quiz");
@@ -194,20 +194,20 @@ describe("เลือกไซซ์", () => {
 });
 
 describe("สรุป + ส่ง LINE + คัดลอก", () => {
-  it("การ์ดสรุป: แบบ · พลอยบน · พลอยล่าง · ไซซ์ · 800 บาท · 'ยังไม่ใช่การสั่งซื้อ'", () => {
+  it("การ์ดสรุป: แบบ · พลอยบน · พลอยล่าง · ไซซ์ · 890 บาท · 'ยังไม่ใช่การสั่งซื้อ'", () => {
     render(<RingShowcaseClient params={LEGACY} />);
     const summary = screen.getByRole("heading", { name: "สรุปที่เลือก" }).parentElement as HTMLElement;
     expect(within(summary).getByText("แหวนไขว้พลอยไข่ 2 เม็ด · แบบ 1")).toBeInTheDocument();
     expect(within(summary).getByText("โกเมน")).toBeInTheDocument();
     expect(within(summary).getByText("ซิทริน")).toBeInTheDocument();
-    expect(within(summary).getByText("800 บาท")).toBeInTheDocument();
+    expect(within(summary).getByText("890 บาท")).toBeInTheDocument();
     expect(within(summary).getByText("ยังไม่ใช่การสั่งซื้อ — ส่งให้แอดมินยืนยันก่อน")).toBeInTheDocument();
   });
   it("ลิงก์ LINE เป็น <a> ปกติ (ไม่ใช่ window.open) จาก lineOaMessageUrl · ราคามีค่าเดียว", () => {
     render(<RingShowcaseClient params={LEGACY} />);
     const a = screen.getByRole("link", { name: /ส่งให้แอดมินทาง LINE/ });
     expect(a.getAttribute("href")).toMatch(/^https:\/\/line\.me\/R\/oaMessage\/%40/);
-    expect([...lineMessage().matchAll(/(\d[\d,]*)\s*บาท/g)].map((m) => m[1])).toEqual(["800"]);
+    expect([...lineMessage().matchAll(/(\d[\d,]*)\s*บาท/g)].map((m) => m[1])).toEqual(["890"]);
   });
   it("คัดลอกสำเร็จ → ปุ่ม 'คัดลอกแล้ว ✓' แล้วกลับเป็นเดิมหลัง 3 วิ", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });

@@ -1,11 +1,11 @@
 // lib/ring-builder/showcase/config.ts — ค่าคงที่ของหน้า "แบบของ 3J Jewelry" (D1 demo · pure · ไม่มี runtime import)
 // แหล่งเดียวของ: ชื่อแบบ · ราคา · ไซซ์ · ขนาดพลอย · ระยะ pre-order · ข้อความหน้าจอ
-// 🔴 ค่าจากเจ้าของ (12 พ.ย. 69): ราคา 800 บาทตายตัว · ไซซ์ 55–58 · พลอยไข่ 7×5 มม. · pre-order ทำภายใน 21 วัน
+// 🔴 ค่าจากเจ้าของ (12 พ.ย. 69): ราคา 890 บาทตายตัว (เจ้าของเปลี่ยน 18 พ.ย. 69 จาก 800) · ไซซ์ 55–58 · พลอยไข่ 7×5 มม. · pre-order ทำภายใน 21 วัน
 //    ค่าอื่นที่ไม่มีในเอกสาร = ห้ามแต่ง → TODO_OWNER_* (ดูที่ชื่อแบบและคำบรรยายรูปด้านล่าง) · แบบเดียวเท่านั้น (X4) — แบบอื่นห้ามอยู่ใน config/bundle
 // 🔴 D1 = config ในโค้ด: แก้ราคา/ไซซ์/รูป ต้อง deploy ใหม่ · D2 จะย้ายไป rb_* (ดู design-ring-showcase-demo.md §2)
 
 /** ราคาเหมาตายตัวต่อวง (บาท) — ค่าเดียวของทั้งหน้า · ไม่คิดค่าพลอยเพิ่ม */
-export const SHOWCASE_PRICE_THB = 800;
+export const SHOWCASE_PRICE_THB = 890;
 
 /** ไซซ์ที่เปิดให้เลือก (เบอร์ร้าน) · ต้องอยู่ในช่วงร้าน 45–68 (config.test.ts ล็อก) */
 export const SHOWCASE_SIZES = [55, 56, 57, 58] as const;
@@ -41,7 +41,7 @@ export const SHOWCASE_PATH = "/ring-builder";
 export const GEM_QUIZ_PATH = "/gem-quiz";
 export const RING_SIZE_PATH = "/ring-size";
 
-/** "800 บาท" — ทุกที่ที่แสดงราคาต้องผ่านฟังก์ชันนี้ (ห้ามพิมพ์ตัวเลขราคาในคอมโพเนนต์) */
+/** "890 บาท" — ทุกที่ที่แสดงราคาต้องผ่านฟังก์ชันนี้ (ห้ามพิมพ์ตัวเลขราคาในคอมโพเนนต์) */
 export function formatPriceThb(): string {
   return `${SHOWCASE_PRICE_THB.toLocaleString("en-US")} บาท`;
 }

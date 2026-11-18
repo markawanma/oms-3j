@@ -41,13 +41,13 @@ function code(src: string): string {
 }
 
 describe("ค่าจากเจ้าของ (12 พ.ย. 69)", () => {
-  it("ราคา 800 · ไซซ์ 55–58 · พลอยไข่ 7×5 · pre-order 21 วัน", () => {
-    expect(SHOWCASE_PRICE_THB).toBe(800);
+  it("ราคา 890 · ไซซ์ 55–58 · พลอยไข่ 7×5 · pre-order 21 วัน", () => {
+    expect(SHOWCASE_PRICE_THB).toBe(890);
     expect([...SHOWCASE_SIZES]).toEqual([55, 56, 57, 58]);
     expect(SHOWCASE_SIZE_RANGE).toEqual({ min: 55, max: 58 });
     expect(SHOWCASE_OVAL_MM).toEqual({ long: 7, short: 5 });
     expect(SHOWCASE_LEAD_DAYS).toBe(21);
-    expect(formatPriceThb()).toBe("800 บาท");
+    expect(formatPriceThb()).toBe("890 บาท");
     expect(leadTimeLabel()).toBe("พรีออเดอร์ ทำภายใน 21 วัน");
   });
   it("ไซซ์อยู่ในช่วงร้าน 45–68 (ล็อกกับ RING_BUILDER_SIZES ซึ่ง parity กับ DB)", () => {
@@ -85,7 +85,7 @@ describe("copy-guard ของไฟล์ที่ถึงลูกค้า",
     }
     expect(hits).toEqual([]);
   });
-  it("ราคาไม่ถูกพิมพ์ซ้ำนอก config: ไม่มีเลข 800 ในไฟล์อื่นของหน้า", () => {
+  it("ราคาไม่ถูกพิมพ์ซ้ำนอก config: ไม่มีเลข 890 ในไฟล์อื่นของหน้า", () => {
     const hits: string[] = [];
     for (const f of FILES) {
       if (rel(f) === "lib/ring-builder/showcase/config.ts") continue;
