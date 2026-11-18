@@ -2,14 +2,16 @@
 //
 // พอร์ตจากส่วน "3) viewer WebGL1 ดิบ" ของ docs/3j-jewelry/cad/trinity-ring-preview.html — ลำดับวาด · กล้อง · ลากหมุน
 // 🔴 D1.1 (17 พ.ย. 69): แก้ได้เฉพาะ fragment shader (ไฟล์ shaders.ts · ค่าแสงที่ SILVER_LOOK) — ห้ามแก้สูตรกล้อง (matrix.ts) และ bypass-ring.ts
+//   D1.2 (18 พ.ย. 69): เพิ่มได้ 1 เมธอด setRing() + generalize type ring เป็น ViewerRing (สลับแบบโดยไม่สร้าง WebGL context ใหม่) — กล้อง/matrix.ts/shader/bypass-ring.ts ห้ามแตะเหมือนเดิม
 //   shader V2 (เงินขัดเงา) compile/link ไม่ผ่าน → ถอยไปใช้ shader V1 ของ D1 ก่อน · V1 ก็ไม่ผ่าน → throw ให้ผู้เรียกตก fallback เป็นรูปจริง
 // ส่วนที่เพิ่มจากต้นฉบับ:
 //   · ซูมด้วย wheel เฉพาะเมื่อกด Ctrl/⌘ (pinch บนแทร็กแพดก็เป็นแบบนี้) — เพราะเวทีติดบนจอ ล้อเลื่อนปกติต้องเลื่อนหน้าได้
 //   · คีย์บอร์ด (ลูกศร = หมุน · +/- = ซูม · Home = กลับมุมหน้า) · หมุนช้าอัตโนมัติ (ปิดเมื่อมีการโต้ตอบ/reduced-motion)
 //   · dispose() · callback onReady / onUnsupported แทนข้อความใน DOM (UI ตัดสินใจเอง)
 //   · D2-1: requestAnimationFrame ทำงานเฉพาะเมื่อมีอะไรเปลี่ยน (dirty / กำลังหมุน / กำลังเลื่อนกลับมุมหน้า) + ResizeObserver แทนการอ่านขนาดทุกเฟรม
-import type { BypassRing, RingMesh } from "./bypass-ring";
+import type { RingMesh } from "./bypass-ring";
 import type { GemTint } from "./gem-colors";
+import type { ViewerRing } from "./ring-types";
 import { buildCamera } from "./matrix";
 import { FS_GEM_V1, FS_GEM_V2, FS_METAL_V1, FS_METAL_V2, VS } from "./shaders";
 
@@ -26,6 +28,8 @@ export interface RingRendererOptions {
 
 export interface RingRenderer {
   setTints(tints: readonly GemTint[]): void;
+  /** สลับเป็นแหวนอีกแบบ: คืน buffer เดิมทั้งหมด → อัปโหลดใหม่ → กลับมุมหน้า · ผู้เรียกต้อง setTints() ตามหลัง · พังกลางทาง = onUnsupported("no_webgl") */
+  setRing(next: ViewerRing): void;
   resetView(): void;
   dispose(): void;
 }
@@ -61,7 +65,8 @@ interface Buf {
 const DEFAULT_TINT: GemTint = { rgb: [0.9, 0.92, 0.96], cz: true };
 
 /** สร้างตัววาดบน canvas — throw เมื่อสร้าง context/shader ไม่ได้ (ผู้เรียกตก fallback เป็นรูปจริง) */
-export function createRingRenderer(canvas: HTMLCanvasElement, ring: BypassRing, opts: RingRendererOptions): RingRenderer {
+export function createRingRenderer(canvas: HTMLCanvasElement, initialRing: ViewerRing, opts: RingRendererOptions): RingRenderer {
+  let ring: ViewerRing = initialRing;
   const maybeGl = canvas.getContext("webgl", CONTEXT_ATTRS) as WebGLRenderingContext | null;
   if (!maybeGl) throw new Error("no webgl");
   const gl: WebGLRenderingContext = maybeGl;
@@ -169,6 +174,8 @@ export function createRingRenderer(canvas: HTMLCanvasElement, ring: BypassRing, 
   function uploadRing() {
     freeMesh(metalBuf);
     gemBufs.forEach(freeMesh);
+    metalBuf = null; // ถ้า upMesh ด้านล่าง throw กลางทาง ไม่ให้ draw() ใช้ buffer ที่ถูกลบแล้ว
+    gemBufs = [];
     metalBuf = upMesh(ring.metal);
     gemBufs = ring.gems.map((g) => upMesh(g.mesh));
   }
@@ -399,6 +406,21 @@ export function createRingRenderer(canvas: HTMLCanvasElement, ring: BypassRing, 
   return {
     setTints(next) {
       tints = [...next];
+      markDirty();
+    },
+    setRing(next) {
+      if (disposed) return;
+      ring = next;
+      // จำนวนเม็ดเปลี่ยน → เติม/ตัดให้ยาวเท่า (ที่เติม = CZ) · ผู้เรียก setTints() ตามทันที
+      tints = next.gems.map((_, i) => tints[i] ?? DEFAULT_TINT);
+      if (lost) return; // context หาย — onContextRestored จะอัปโหลดแหวนปัจจุบันเอง
+      try {
+        uploadRing();
+      } catch {
+        opts.onUnsupported?.("no_webgl");
+        return;
+      }
+      resetView();
       markDirty();
     },
     resetView,

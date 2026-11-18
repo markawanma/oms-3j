@@ -2,7 +2,7 @@
 // เสริมจาก quiz-link.test.ts / line-message.test.ts (ไม่ซ้ำเคสเดิม)
 import { describe, expect, it } from "vitest";
 import { GEM_QUIZ_STONE_CODES } from "@/lib/gem-quiz/config";
-import { SHOWCASE_SIZES } from "./config";
+import { getShowcaseDesign } from "./designs";
 import { buildShowcaseLineHref, buildShowcaseLineMessage, type ShowcaseChoice } from "./line-message";
 import {
   INTENTION_CODES,
@@ -65,8 +65,8 @@ describe("readShowcaseParams — param ผสมกัน", () => {
     expect(p.design).toBeNull();
   });
   it("ค่ายาว 10k ทุก key พร้อมกัน → ไม่ throw · ทุก key null · ผลลัพธ์ไม่มีสตริงดิบ", () => {
-    const p = readShowcaseParams({ g: HUGE, t: HUGE, i: HUGE, q: HUGE, c: HUGE, d: HUGE });
-    expect(p).toEqual({ top3: null, table: null, intention: null, answered: null, own: null, design: null });
+    const p = readShowcaseParams({ g: HUGE, t: HUGE, i: HUGE, q: HUGE, c: HUGE, d: HUGE, r: HUGE });
+    expect(p).toEqual({ top3: null, table: null, intention: null, answered: null, own: null, design: null, ring: "bypass2" });
     expect(JSON.stringify(p)).not.toContain("xxx");
   });
   it("key เป็นชื่อ prototype ใน searchParams ไม่ทำให้ใครอ่านผิด (constructor/__proto__/toString)", () => {
@@ -140,15 +140,15 @@ describe("LINE — ไซซ์นอก 55–58 ไม่สร้างข้�
   it("ไซซ์ขอบเขต 54/59/0/-1/55.5/NaN/Infinity/'56'/null-ish ที่ไม่ใช่ null → null ทั้งข้อความและลิงก์ ทุกสถานะ", () => {
     for (const choice of choices) {
       for (const size of [54, 59, 0, -56, 55.5, 56.0001, NaN, Infinity, -Infinity, "56", [56], {}, undefined, 1e9, Number.MAX_SAFE_INTEGER]) {
-        expect(buildShowcaseLineMessage({ choice, size: size as never })).toBeNull();
-        expect(buildShowcaseLineHref({ choice, size: size as never })).toBeNull();
+        expect(buildShowcaseLineMessage({ designId: "bypass2", choice, size: size as never })).toBeNull();
+        expect(buildShowcaseLineHref({ designId: "bypass2", choice, size: size as never })).toBeNull();
       }
     }
   });
   it("ราคาในข้อความมีตัวเดียว = 890 ทุก choice × (ไม่เลือกไซซ์ + 4 ไซซ์)", () => {
     for (const choice of choices) {
-      for (const size of [null, ...SHOWCASE_SIZES]) {
-        const msg = buildShowcaseLineMessage({ choice, size }) as string;
+      for (const size of [null, ...getShowcaseDesign("bypass2").sizes]) {
+        const msg = buildShowcaseLineMessage({ designId: "bypass2", choice, size }) as string;
         expect([...msg.matchAll(/(\d[\d,]*)\s*บาท/g)].map((m) => m[1])).toEqual(["890"]);
         expect(msg).not.toMatch(/เพชร|undefined|NaN|\[object/);
       }
@@ -156,7 +156,7 @@ describe("LINE — ไซซ์นอก 55–58 ไม่สร้างข้�
   });
   it("ข้อความ LINE ไม่มีค่าดิบที่ฝังมาใน choice (field แปลกปลอมถูกเมิน)", () => {
     const evil = { kind: "own", top: "garnet", bottom: "citrine", note: "<script>alert(1)</script>", price: 1, intention: "love" } as unknown as ShowcaseChoice;
-    const msg = buildShowcaseLineMessage({ choice: evil, size: null }) as string;
+    const msg = buildShowcaseLineMessage({ designId: "bypass2", choice: evil, size: null }) as string;
     expect(msg).not.toContain("alert");
     expect(msg).not.toContain("love");
     expect(msg).toContain("ราคา 890 บาท");

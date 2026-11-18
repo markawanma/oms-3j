@@ -3,11 +3,12 @@
 // PhotoGallery — "ดูของจริง": รูปจริง 5 รูป สไลด์แนวนอน scroll-snap + ปุ่ม ‹ › · รูปโหลดไม่ได้ = กรอบ ivory + "ลองอีกครั้ง"
 // <img> ธรรมดา (static asset จาก /_next/static) · alt ตามมุมถ่าย — TODO_OWNER_PHOTO_CAPTION (config.ts) ยังไม่ผ่านการยืนยัน
 import { useRef, useState } from "react";
-import { SHOWCASE_COPY, SHOWCASE_DESIGN_NAME, SHOWCASE_PHOTO_VIEWS } from "@/lib/ring-builder/showcase/config";
+import { SHOWCASE_COPY, SHOWCASE_PHOTO_VIEWS } from "@/lib/ring-builder/showcase/config";
 import type { ShowcasePhoto } from "../_assets";
 
-export function photoAlt(index: number, total: number): string {
-  return `${SHOWCASE_DESIGN_NAME} รูปที่ ${index + 1} จาก ${total} — ${SHOWCASE_PHOTO_VIEWS[index] ?? ""}`.trim();
+/** alt ของรูปจริง — ชื่อแบบ + มุมถ่าย (ชื่อมุมมีให้เฉพาะรูปแบบไขว้ที่เจ้าของส่งมา) */
+export function photoAlt(designName: string, index: number, total: number): string {
+  return `${designName} รูปที่ ${index + 1} จาก ${total} — ${SHOWCASE_PHOTO_VIEWS[index] ?? ""}`.trim();
 }
 
 function PhotoSlide({ photo, alt }: { photo: ShowcasePhoto; alt: string }) {
@@ -50,7 +51,7 @@ function PhotoSlide({ photo, alt }: { photo: ShowcasePhoto; alt: string }) {
   );
 }
 
-export function PhotoGallery({ photos }: { photos: readonly ShowcasePhoto[] }) {
+export function PhotoGallery({ photos, designName }: { photos: readonly ShowcasePhoto[]; designName: string }) {
   const scrollerRef = useRef<HTMLDivElement | null>(null);
 
   function scrollByPage(dir: 1 | -1) {
@@ -64,6 +65,19 @@ export function PhotoGallery({ photos }: { photos: readonly ShowcasePhoto[] }) {
 
   const navBtn =
     "inline-flex h-11 w-11 items-center justify-center rounded-full border border-[var(--gq-border)] bg-white text-[var(--gq-text)] transition-colors hover:border-[var(--gq-burgundy-border)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--gq-burgundy)]";
+
+  // แบบที่ยังไม่มีรูปถ่ายจริง: คงหัวข้อไว้ (ซ่อนแล้วหน้ากระโดดตอนสลับแบบ) + การ์ดบอกตรงๆ · ห้ามเอารูปแบบอื่นมาแทน (Z6)
+  if (photos.length === 0) {
+    return (
+      <div className="flex flex-col gap-3">
+        <h2 className="font-quiz-serif text-xl font-semibold text-[var(--gq-burgundy-dark)]">{SHOWCASE_COPY.photosHeading}</h2>
+        <div className="flex min-h-[120px] flex-col justify-center gap-1 rounded-xl border border-[var(--gq-border)] bg-[var(--gq-ivory)] px-4 py-4">
+          <p className="text-base font-medium text-[var(--gq-text)]">{SHOWCASE_COPY.noPhotoTitle}</p>
+          <p className="text-sm leading-[1.6] text-[var(--gq-text-muted)]">{SHOWCASE_COPY.noPhotoBody}</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-3">
@@ -91,7 +105,7 @@ export function PhotoGallery({ photos }: { photos: readonly ShowcasePhoto[] }) {
       >
         {photos.map((photo, i) => (
           <div key={photo.src} className="w-[80%] flex-none snap-center sm:w-[46%] lg:w-[24%]">
-            <PhotoSlide photo={photo} alt={photoAlt(i, photos.length)} />
+            <PhotoSlide photo={photo} alt={photoAlt(designName, i, photos.length)} />
           </div>
         ))}
       </div>

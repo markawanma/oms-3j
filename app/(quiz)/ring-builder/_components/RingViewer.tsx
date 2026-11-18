@@ -2,59 +2,102 @@
 
 // RingViewer — กล่องดำของภาพแหวน 3D (สัญญาแบบ §15.3 ของ design-ring-builder.md ฉบับ D1: ไม่ fetch · ไม่รู้ราคา/ชื่อพลอย · ไม่เก็บ state การเลือก · ไม่โหลดอะไรจากโดเมนอื่น)
 // lazy-load โดย RingStage หลังตรวจ WebGL แล้ว (import แบบ dynamic) — ไฟล์นี้จึงไม่ถูกดึงเข้า bundle แรกของหน้า
-// รับแค่รหัสพลอยบน/ล่าง (null = CZ ขาว) · ผิดพลาด/ context lost → เรียก onUnsupported ให้ UI สลับเป็นรูปจริง
+// 🔴 D1.2 (Z9): ไฟล์เดียวที่ import showcase-rings (→ row-ring/row-presets) — builder แบบแถวทั้งหมดอยู่ใน chunk lazy นี้ ไม่เข้า first-load
+// รับ designId + รหัสพลอยหลัก/เสริม (null = CZ ขาว) · สลับแบบ = renderer.setRing() บน WebGL context เดิม (ไม่ remount → ไม่สร้าง context ใหม่ ไม่กระพริบ)
+// ผิดพลาด/ context lost → เรียก onUnsupported ให้ UI สลับเป็นรูปจริง/ภาพประกอบ · สร้างโมเดลของแบบนั้นไม่ได้ → onDesignFailed(id) (stage แสดง fallback + ปุ่มลองอีกครั้ง)
 import { useEffect, useRef } from "react";
-import { buildBypassRing, type BypassRing } from "@/lib/ring-builder/viewer/bypass-ring";
-import { ringTints } from "@/lib/ring-builder/viewer/gem-colors";
+import { designTints } from "@/lib/ring-builder/viewer/gem-colors";
 import { createRingRenderer, type RingRenderer, type UnsupportedReason } from "@/lib/ring-builder/viewer/gl-renderer";
+import { getShowcaseRing } from "@/lib/ring-builder/viewer/showcase-rings";
 import type { GemQuizStoneCode } from "@/lib/gem-quiz/config";
 import { SHOWCASE_COPY } from "@/lib/ring-builder/showcase/config";
+import type { ShowcaseDesignId } from "@/lib/ring-builder/showcase/designs";
+import type { ViewerRing } from "@/lib/ring-builder/viewer/ring-types";
 
 export interface RingViewerProps {
+  designId: ShowcaseDesignId;
+  /** พลอยหลัก (null = CZ ขาว) */
   top: GemQuizStoneCode | null;
+  /** พลอยเสริม (null = CZ ขาว) */
   bottom: GemQuizStoneCode | null;
   /** สรุปพลอยปัจจุบันสำหรับ screen reader */
   ariaLabel: string;
   onReady?: () => void;
   onUnsupported?: (reason: UnsupportedReason) => void;
+  /** สร้าง/อัปโหลดโมเดลของแบบนี้ไม่ได้ (stage แสดง fallback ของแบบนั้น) */
+  onDesignFailed?: (id: ShowcaseDesignId) => void;
   /** ปุ่ม "กลับมุมหน้า" — แสดงเฉพาะเมื่อ stage อยู่ในโหมด ready (ซ่อนตอนโหลด/context lost · หนี้ D2-6) · ค่าเริ่มต้น false */
   showReset?: boolean;
 }
 
-export default function RingViewer({ top, bottom, ariaLabel, onReady, onUnsupported, showReset = false }: RingViewerProps) {
+export default function RingViewer({ designId, top, bottom, ariaLabel, onReady, onUnsupported, onDesignFailed, showReset = false }: RingViewerProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const rendererRef = useRef<RingRenderer | null>(null);
+  // แบบที่ renderer ถือโมเดลอยู่ตอนนี้ — ใช้ข้ามการ setRing ซ้ำตอน mount (effect ตามหลังการสร้าง)
+  const shownDesign = useRef<ShowcaseDesignId | null>(null);
   // ค่าล่าสุดของ props ที่ effect ตอน mount ต้องใช้ โดยไม่ให้ตัววาดถูกสร้างใหม่ทุกครั้งที่สีเปลี่ยน
-  const latest = useRef({ top, bottom, onReady, onUnsupported });
-  latest.current = { top, bottom, onReady, onUnsupported };
+  const latest = useRef({ designId, top, bottom, onReady, onUnsupported, onDesignFailed });
+  latest.current = { designId, top, bottom, onReady, onUnsupported, onDesignFailed };
 
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const reducedMotion = typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     let renderer: RingRenderer | null = null;
+    const startId = latest.current.designId;
+    let ring: ViewerRing;
     try {
-      const ring: BypassRing = buildBypassRing();
+      ring = getShowcaseRing(startId);
+    } catch {
+      // โมเดลของแบบนี้สร้างไม่ได้ — ไม่ใช่ปัญหา WebGL: stage แสดง fallback ของแบบนั้น + ปุ่ม "ลองอีกครั้ง" (remount)
+      latest.current.onDesignFailed?.(startId);
+      return;
+    }
+    try {
       renderer = createRingRenderer(canvas, ring, {
-        autoRotate: false, // TL 12 พ.ย.: ไม่หมุนเอง — หมุนแล้วพลอยหันหนีตอนลูกค้ากำลังเลือกแบบ 1/2/3 (ลากหมุนเองได้)
+        autoRotate: false, // TL 12 พ.ย.: ไม่หมุนเอง — หมุนแล้วพลอยหันหนีตอนลูกค้ากำลังเลือกชุดพลอย (ลากหมุนเองได้)
         reducedMotion,
         onReady: () => latest.current.onReady?.(),
         onUnsupported: (reason) => latest.current.onUnsupported?.(reason),
       });
-      renderer.setTints(ringTints(latest.current.top, latest.current.bottom));
+      renderer.setTints(designTints(startId, latest.current.top, latest.current.bottom));
       rendererRef.current = renderer;
+      shownDesign.current = startId;
     } catch {
+      // WebGL/shader ล้ม (สร้าง context ไม่ได้ · shader V1 ก็ไม่ผ่าน)
+      renderer?.dispose();
+      renderer = null;
       latest.current.onUnsupported?.("no_webgl");
     }
     return () => {
       renderer?.dispose();
       rendererRef.current = null;
+      shownDesign.current = null;
     };
   }, []);
 
+  // สลับแบบ: สร้างโมเดล (cache) → setRing → ตั้งสีใหม่ · พัง = แจ้ง stage (ภาพเดิมถูกบังด้วย fallback ของแบบใหม่)
   useEffect(() => {
-    rendererRef.current?.setTints(ringTints(top, bottom));
-  }, [top, bottom]);
+    const r = rendererRef.current;
+    if (!r || shownDesign.current === designId) return;
+    try {
+      r.setRing(getShowcaseRing(designId));
+      shownDesign.current = designId;
+      r.setTints(designTints(designId, latest.current.top, latest.current.bottom));
+    } catch {
+      latest.current.onDesignFailed?.(designId);
+    }
+  }, [designId]);
+
+  useEffect(() => {
+    // แบบที่ยังไม่ถูกแสดง (สลับล้มเหลว) ไม่ตั้งสี — กันความยาว tints ไม่ตรงกับโมเดลที่ถืออยู่
+    if (shownDesign.current !== designId) return;
+    try {
+      rendererRef.current?.setTints(designTints(designId, top, bottom));
+    } catch {
+      latest.current.onDesignFailed?.(designId);
+    }
+  }, [designId, top, bottom]);
 
   return (
     <>

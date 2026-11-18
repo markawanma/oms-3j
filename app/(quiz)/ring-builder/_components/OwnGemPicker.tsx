@@ -1,14 +1,16 @@
 "use client";
 
-// OwnGemPicker — แผงโหมด "เลือกพลอยเอง": 2 แถว radiogroup (พลอยบน/พลอยล่าง) × 5 ชนิดเดิม · บน=ล่างได้ (25 แบบ) · ราคาไม่เปลี่ยน (890 บาทที่เดียว)
+// OwnGemPicker — แผงโหมด "เลือกพลอยเอง": 2 แถว radiogroup (พลอยหลัก/พลอยเสริม · ตำแหน่งตามแบบแหวน) × 5 ชนิดเดิม · หลัก=เสริมได้ (25 ชุด) · ราคาไม่เปลี่ยน (890 บาทที่เดียว)
 // 🔴 คำอธิบายมาจาก config เท่านั้น: คู่ตรงใน GEM_QUIZ_PAIRS (findExactPair) → ข้อความคู่เดิม · ไม่มีคู่ → labelTh + keywords รายเม็ด + หมายเหตุ · ไม่มีคำเชื่อมความหมายเอง (Y4)
 // ปุ่ม 5 ต่อแถวที่ 360px ≈ 59×64px · เลือกแล้ว = ขอบหนา + เครื่องหมายถูก (ไม่พึ่งสี) · ←→ roving ต่อแถว
 import { useId, useRef } from "react";
 import { GEM_QUIZ_STONES, type GemQuizStoneCode } from "@/lib/gem-quiz/config";
 import { SHOWCASE_COPY } from "@/lib/ring-builder/showcase/config";
+import { roleMainLabel, roleSubLabel, type ShowcaseDesign } from "@/lib/ring-builder/showcase/designs";
 import type { OwnGems } from "@/lib/ring-builder/showcase/quiz-link";
 import { describeOwn } from "@/lib/ring-builder/showcase/sets";
 import { GemIcon } from "../../gem-quiz/_components/GemIcon";
+import { PlacementNote } from "./PlacementNote";
 import { handleRadioKeyDown } from "./radio-keys";
 
 function GemRow({
@@ -74,10 +76,12 @@ function GemRow({
 }
 
 export function OwnGemPicker({
+  design,
   own,
   onPickTop,
   onPickBottom,
 }: {
+  design: ShowcaseDesign;
   /** null = ยังไม่ได้เลือกเลย (เข้าตรง) */
   own: OwnGems | null;
   onPickTop: (code: GemQuizStoneCode) => void;
@@ -86,8 +90,9 @@ export function OwnGemPicker({
   const desc = own ? describeOwn(own.top, own.bottom) : null;
   return (
     <div className="flex flex-col gap-4">
-      <GemRow label={SHOWCASE_COPY.ownTopLabel} value={own ? own.top : null} onPick={onPickTop} />
-      <GemRow label={SHOWCASE_COPY.ownBottomLabel} value={own ? own.bottom : null} onPick={onPickBottom} />
+      <PlacementNote design={design} />
+      <GemRow label={roleMainLabel(design)} value={own ? own.top : null} onPick={onPickTop} />
+      <GemRow label={roleSubLabel(design)} value={own ? own.bottom : null} onPick={onPickBottom} />
 
       <div aria-live="polite" className="flex flex-col gap-1.5 rounded-2xl border border-[var(--gq-border-soft)] bg-white px-4 py-3.5">
         {desc === null && <p className="text-sm text-[var(--gq-text-muted)]">{SHOWCASE_COPY.ownEmptyHint}</p>}

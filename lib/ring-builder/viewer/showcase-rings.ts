@@ -23,11 +23,8 @@ export function getShowcaseRing(id: ShowcaseRingId): ViewerRing {
   return ring;
 }
 
-/** ดัชนีเม็ด "พลอยหลัก" ของแถว n เม็ด (เรียงซ้าย→ขวา): คี่ = 1 เม็ดกลาง · คู่ = 2 เม็ดกลาง */
-export function mainIndexes(n: number): number[] {
-  if (!Number.isInteger(n) || n < 1) return [];
-  return n % 2 === 1 ? [(n - 1) / 2] : [n / 2 - 1, n / 2];
-}
+// mainIndexes อยู่ใน showcase/designs.ts (pure · pictogram/gem-colors ใช้โดยไม่ลาก row-ring เข้า first-load) — re-export ไว้ให้ test ฝั่ง 3D
+export { mainIndexes } from "../showcase/designs";
 
 /** ล้าง cache (ใช้ใน test เท่านั้น) */
 export function clearShowcaseRingCache(): void {

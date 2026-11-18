@@ -1,31 +1,41 @@
 "use client";
 
-// RingStage — เวทีแสดงแหวน: ตรวจ WebGL → lazy-load RingViewer → ไม่ได้/ล้ม = รูปจริงรูปแรกแทน (ตัวเลือกด้านล่างยังใช้ได้ทุก state)
-// 4 state ตาม UX §4: checking/loading (รูปเบลอ + "กำลังโหลด…") · ready (canvas) · unsupported (รูปจริง + ข้อความ) · lost (รูปจริง · กู้คืนได้เอง)
+// RingStage — เวทีแสดงแหวน: ตรวจ WebGL → lazy-load RingViewer → ไม่ได้/ล้ม = รูปจริงของ "แบบนั้น" แทน (ไม่มีรูป = ภาพประกอบตำแหน่งเม็ด) (ตัวเลือกด้านล่างยังใช้ได้ทุก state)
+// 4 state ตาม UX §4/§5/§6: checking/loading (รูปเบลอ หรือ pictogram จาง + "กำลังโหลด…") · ready (canvas) · unsupported · lost (กู้คืนได้เอง) + designFailed (โมเดลของแบบนี้สร้างไม่ได้ → ปุ่ม "ลองอีกครั้ง")
+// 🔴 D1.2 (Z6): รูปถ่ายแสดงเฉพาะแบบที่มีรูปจริงของแบบนั้น — photo เป็น optional · ไม่มีรูป = pictogram + ป้าย "ไม่ใช่ภาพจริง" ห้ามเอารูปแบบอื่นแทนในทุก state
+// สลับแบบ = viewer.setRing() บน context เดิม (sync · ไม่มีช่วงรอให้เห็น) จึงไม่มี state "กำลังโหลดแบบ …" — เฟรมเก่าไม่ค้าง (design §2 Bundle)
 import { useEffect, useState, type ComponentType } from "react";
 import type { GemQuizStoneCode } from "@/lib/gem-quiz/config";
 import { SHOWCASE_COPY } from "@/lib/ring-builder/showcase/config";
+import type { ShowcaseDesign, ShowcaseDesignId } from "@/lib/ring-builder/showcase/designs";
 import { isWebGLAvailable } from "@/lib/ring-builder/viewer/gl-renderer";
 import type { RingViewerProps } from "./RingViewer";
 import type { ShowcasePhoto } from "../_assets";
+import { DesignPictogram } from "./DesignPictogram";
 
 type StageMode = "checking" | "loading" | "ready" | "unsupported" | "lost";
 
 export function RingStage({
+  design,
   top,
   bottom,
   ariaLabel,
   photo,
   photoAlt,
 }: {
+  design: ShowcaseDesign;
   top: GemQuizStoneCode | null;
   bottom: GemQuizStoneCode | null;
   ariaLabel: string;
-  photo: ShowcasePhoto;
+  /** รูปจริงของแบบนี้ (undefined = ยังไม่มีรูปถ่ายจริง) */
+  photo?: ShowcasePhoto;
   photoAlt: string;
 }) {
   const [mode, setMode] = useState<StageMode>("checking");
   const [Viewer, setViewer] = useState<ComponentType<RingViewerProps> | null>(null);
+  const [failedDesign, setFailedDesign] = useState<ShowcaseDesignId | null>(null);
+  // remount viewer เมื่อกด "ลองอีกครั้ง" (สร้าง context + โมเดลใหม่)
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -46,21 +56,31 @@ export function RingStage({
     };
   }, []);
 
+  // โมเดลของแบบก่อนหน้าล้มแล้วผู้ใช้สลับไปแบบอื่น → remount viewer (renderer เดิมอาจไม่มี/ถือโมเดลผิด) แทนค้างสถานะโหลด
+  useEffect(() => {
+    if (failedDesign !== null && failedDesign !== design.id) {
+      setFailedDesign(null);
+      setAttempt((n) => n + 1);
+      setMode((m) => (m === "ready" ? "loading" : m));
+    }
+  }, [design.id, failedDesign]);
+
+  const designFailed = failedDesign === design.id;
   const showViewer = Viewer !== null && mode !== "unsupported" && mode !== "checking";
-  const showPhoto = mode !== "ready";
-  const blurred = mode === "checking" || mode === "loading";
-  const statusText =
-    mode === "checking" || mode === "loading"
-      ? SHOWCASE_COPY.loading3d
-      : mode === "unsupported"
-        ? SHOWCASE_COPY.unsupported3d
-        : mode === "lost"
-          ? SHOWCASE_COPY.contextLost3d
-          : null;
+  const showFallback = mode !== "ready" || designFailed;
+  const loading = (mode === "checking" || mode === "loading") && !designFailed;
+  const hasPhoto = photo !== undefined;
+
+  let statusText: string | null = null;
+  if (designFailed) statusText = SHOWCASE_COPY.stageDesignLoadFailed;
+  else if (loading) statusText = SHOWCASE_COPY.loading3d;
+  else if (mode === "unsupported") statusText = hasPhoto ? SHOWCASE_COPY.unsupported3d : SHOWCASE_COPY.stageNo3dNoPhoto;
+  else if (mode === "lost") statusText = hasPhoto ? SHOWCASE_COPY.contextLost3d : SHOWCASE_COPY.contextLost3dNoPhoto;
 
   return (
     <section
       aria-label={SHOWCASE_COPY.stageLabel}
+      aria-busy={loading || undefined}
       className="relative h-[40dvh] min-h-[240px] w-full overflow-hidden rounded-2xl border border-[var(--gq-border)] bg-gradient-to-b from-white to-[var(--gq-border-soft)] lg:h-[min(72dvh,640px)]"
     >
       {/* เงาใต้แหวน (§9.4 ข้อ 5) = CSS radial-gradient ใต้ canvas — ไม่ใช่ texture/FBO · ตำแหน่งเทียบกับกรอบกล้องมุมหน้า ให้ TL ดูด้วยตา */}
@@ -71,44 +91,65 @@ export function RingStage({
 
       {showViewer && Viewer && (
         <Viewer
+          key={attempt}
+          designId={design.id}
           top={top}
           bottom={bottom}
           ariaLabel={ariaLabel}
-          showReset={mode === "ready"}
+          showReset={mode === "ready" && !designFailed}
           onReady={() => setMode("ready")}
           onUnsupported={(reason) => setMode(reason === "context_lost" ? "lost" : "unsupported")}
+          onDesignFailed={(id) => setFailedDesign(id)}
         />
       )}
 
-      {showPhoto && (
-        // รูปจริงใน stage: ไม่ผ่าน next/image (ไม่พา request ไป /_next/image ที่ไม่อยู่ใน exempt) — ใช้ไฟล์ static ตรงๆ
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={photo.src}
-          width={photo.width}
-          height={photo.height}
-          alt={blurred ? "" : photoAlt}
-          aria-hidden={blurred ? true : undefined}
-          className={`absolute inset-0 z-[5] h-full w-full object-cover object-[50%_55%] ${blurred ? "scale-105 blur-md" : ""}`}
-        />
-      )}
+      {showFallback &&
+        (hasPhoto ? (
+          // รูปจริงใน stage: ไม่ผ่าน next/image (ไม่พา request ไป /_next/image ที่ไม่อยู่ใน exempt) — ใช้ไฟล์ static ตรงๆ
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={photo.src}
+            width={photo.width}
+            height={photo.height}
+            alt={loading ? "" : photoAlt}
+            aria-hidden={loading ? true : undefined}
+            className={`absolute inset-0 z-[5] h-full w-full object-cover object-[50%_55%] ${loading ? "scale-105 blur-md" : ""}`}
+          />
+        ) : (
+          // ไม่มีรูปถ่ายจริง: ภาพประกอบตำแหน่งเม็ด (schematic · ไม่มีสีพลอย) บนพื้นเดียวกับเวที — ปิดทับ canvas เดิม (กันภาพของแบบก่อนหน้าค้าง)
+          <div className="absolute inset-0 z-[5] flex flex-col items-center justify-center gap-2 bg-gradient-to-b from-white to-[var(--gq-border-soft)]">
+            <DesignPictogram design={design} className={`h-auto w-3/5 max-w-[260px] text-[var(--gq-burgundy)] ${loading ? "opacity-20" : "opacity-60"}`} />
+            {!loading && <span className="rounded-full border border-[var(--gq-border)] bg-white/90 px-3 py-1 text-xs text-[var(--gq-text-muted)]">{SHOWCASE_COPY.pictogramBadge}</span>}
+          </div>
+        ))}
 
       <span className="pointer-events-none absolute left-2.5 top-2.5 z-10 rounded-full border border-[var(--gq-border)] bg-white/90 px-3 py-1 text-xs text-[var(--gq-text-muted)]">
         {SHOWCASE_COPY.badge}
       </span>
-      {mode === "ready" && (
+      {mode === "ready" && !designFailed && (
         <span className="pointer-events-none absolute right-2.5 top-2.5 z-10 rounded-full bg-white/90 px-3 py-1 text-xs text-[var(--gq-text-muted)]">
           {SHOWCASE_COPY.dragHint}
         </span>
       )}
 
       {statusText && (
-        <p
-          role="status"
-          className="absolute inset-x-3 bottom-3 z-10 rounded-xl bg-white/90 px-3 py-2 text-center text-sm leading-[1.5] text-[var(--gq-text)]"
-        >
-          {statusText}
-        </p>
+        <div className="absolute inset-x-3 bottom-3 z-10 flex flex-col items-center gap-2">
+          <p role="status" className="w-full rounded-xl bg-white/90 px-3 py-2 text-center text-sm leading-[1.5] text-[var(--gq-text)]">
+            {statusText}
+          </p>
+          {designFailed && (
+            <button
+              type="button"
+              onClick={() => {
+                setFailedDesign(null);
+                setAttempt((n) => n + 1);
+              }}
+              className="inline-flex min-h-11 items-center rounded-full border border-[var(--gq-burgundy-border)] bg-white px-5 text-sm font-medium text-[var(--gq-burgundy)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--gq-burgundy)]"
+            >
+              {SHOWCASE_COPY.stageRetry}
+            </button>
+          )}
+        </div>
       )}
     </section>
   );

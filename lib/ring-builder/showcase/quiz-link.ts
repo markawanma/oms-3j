@@ -1,5 +1,6 @@
-// lib/ring-builder/showcase/quiz-link.ts — สัญญา URL ของหน้าแหวน (§9.1 D1.1) + ตัว parse/สร้างลิงก์ (pure)
-// 🔴 หน้าอ่านแค่ 6 key: g (D1 เดิม) · t · i · q · c · d — ?price= ?size= ?design= ไม่มีผล (X2)
+// lib/ring-builder/showcase/quiz-link.ts — สัญญา URL ของหน้าแหวน (§9.1 D1.1 · §4 D1.2) + ตัว parse/สร้างลิงก์ (pure)
+// 🔴 หน้าอ่านแค่ 7 key: g (D1 เดิม) · t · i · q · c · d · r (แบบแหวน) — ?price= ?size= ?design= ไม่มีผล (X2)
+// r = id แบบแหวน (whitelist ใน designs.ts) · ไม่มี/ผิด = ไขว้ · เขียนลง URL เฉพาะเมื่อไม่ใช่ไขว้ และต่อท้ายสุด (URL ไขว้ byte เดิม)
 // 🔴 ทุก key ตรวจแยกกัน ผิดรูป = ถือว่าไม่มี key นั้น ไม่ throw (X1/Y1) · ไม่มีค่าดิบจาก URL ไปถึง DOM/LINE — ค่าที่ผ่านคือรหัสใน whitelist เท่านั้น
 // 🔴 t = ตารางอันดับ 6 เรื่อง — ไม่มีคำตอบดิบ แต่ย้อนอนุมานได้: วันเกิด 38% · feeling 44% · liked[0] 62% · ครบทั้งชุด 12.6% (security D1.1 17 พ.ย. 69: รับได้เพราะไม่ผูกตัวตน · เจ้าของต้องรับทราบก่อน production · ทางลดใน D2 = เก็บตารางใน sessionStorage)
 // q = เรื่องที่ตอบใน quiz (BUG-1) — t เก็บใน URL เสมอเมื่อมีตาราง · ป้าย "จากแบบทดสอบ" = มี t และ i === q
@@ -11,10 +12,12 @@ import {
   SHOWCASE_PARAM_KEY,
   SHOWCASE_PARAM_MAX_LEN,
   SHOWCASE_PARAM_OWN,
+  SHOWCASE_PARAM_RING,
   SHOWCASE_PARAM_TABLE,
   SHOWCASE_PATH,
   SHOWCASE_SET_COUNT,
 } from "./config";
+import { DEFAULT_DESIGN_ID, isShowcaseDesignId, type ShowcaseDesignId } from "./designs";
 
 export type GemTop3 = readonly [GemQuizStoneCode, GemQuizStoneCode, GemQuizStoneCode];
 export type IntentionTable = Readonly<Record<GemQuizIntention, GemTop3>>;
@@ -110,6 +113,15 @@ export function parseDesignParam(raw: unknown): DesignParam | null {
   }
 }
 
+/**
+ * `r` — แบบแหวน (D1.2) · ต้องเป็น string ยาว ≤ 64 และอยู่ใน whitelist เป๊ะ (ตัวพิมพ์เล็ก ไม่ตัดช่องว่าง)
+ * array (key ซ้ำ) / `__proto__` / `constructor` / HTML / ตัวพิมพ์ใหญ่ = null · ไม่ throw (Z1) — ผู้เรียก fallback เป็นไขว้
+ */
+export function parseDesignIdParam(raw: unknown): ShowcaseDesignId | null {
+  if (typeof raw !== "string" || raw.length === 0 || raw.length > SHOWCASE_PARAM_MAX_LEN) return null;
+  return isShowcaseDesignId(raw) ? raw : null;
+}
+
 export interface ShowcaseParams {
   /** `g` (ลิงก์ D1 เดิม) */
   top3: GemTop3 | null;
@@ -120,11 +132,13 @@ export interface ShowcaseParams {
   answered: GemQuizIntention | null;
   own: OwnGems | null;
   design: DesignParam | null;
+  /** `r` — แบบแหวน · ไม่มี/ผิด = ไขว้ (ลิงก์ D1/D1.1 เดิมเปิดแบบไขว้เหมือนเดิม) */
+  ring: ShowcaseDesignId;
 }
 
-export const EMPTY_SHOWCASE_PARAMS: ShowcaseParams = { top3: null, table: null, intention: null, answered: null, own: null, design: null };
+export const EMPTY_SHOWCASE_PARAMS: ShowcaseParams = { top3: null, table: null, intention: null, answered: null, own: null, design: null, ring: DEFAULT_DESIGN_ID };
 
-/** อ่านเฉพาะ 5 key ของ searchParams (ไม่แตะ key อื่นเลย) */
+/** อ่านเฉพาะ 7 key ของ searchParams (ไม่แตะ key อื่นเลย) */
 export function readShowcaseParams(searchParams: Readonly<Record<string, unknown>>): ShowcaseParams {
   const intention = parseIntentionParam(searchParams[SHOWCASE_PARAM_INTENTION]);
   const table = parseTableParam(searchParams[SHOWCASE_PARAM_TABLE]);
@@ -135,6 +149,7 @@ export function readShowcaseParams(searchParams: Readonly<Record<string, unknown
     answered: intention && table ? parseIntentionParam(searchParams[SHOWCASE_PARAM_ANSWERED]) : null,
     own: parseOwnParam(searchParams[SHOWCASE_PARAM_OWN]),
     design: parseDesignParam(searchParams[SHOWCASE_PARAM_DESIGN]),
+    ring: parseDesignIdParam(searchParams[SHOWCASE_PARAM_RING]) ?? DEFAULT_DESIGN_ID,
   };
 }
 
@@ -163,6 +178,8 @@ export interface ShowcaseUrlState {
   own: OwnGems | null;
   active: "rec" | "own";
   recIndex: 1 | 2 | 3;
+  /** แบบแหวน (`r`) — ไม่ใส่/ไขว้ = ไม่เขียน key (URL ของไขว้ = byte เดิมทุกสถานะ) */
+  ring?: ShowcaseDesignId;
 }
 
 /**
@@ -182,6 +199,8 @@ export function buildShowcaseUrl(state: ShowcaseUrlState): string {
   }
   if (state.active === "own") parts.push(`${SHOWCASE_PARAM_DESIGN}=own`);
   else if (state.recIndex === 2 || state.recIndex === 3) parts.push(`${SHOWCASE_PARAM_DESIGN}=${state.recIndex}`);
+  // r ต่อท้ายสุดเสมอ + เขียนเฉพาะที่ไม่ใช่ไขว้ → URL ไขว้ทุกสถานะ byte เดิม (ลิงก์ที่แชร์ไปแล้ว/CTA quiz ไม่เปลี่ยน)
+  if (isShowcaseDesignId(state.ring) && state.ring !== DEFAULT_DESIGN_ID) parts.push(`${SHOWCASE_PARAM_RING}=${state.ring}`);
   return parts.length === 0 ? SHOWCASE_PATH : `${SHOWCASE_PATH}?${parts.join("&")}`;
 }
 

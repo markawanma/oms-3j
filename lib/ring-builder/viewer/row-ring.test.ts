@@ -152,3 +152,76 @@ describe("Z7/Z9 — import graph", () => {
     expect(importers(/from\s+["'][^"']*\/row-presets["']/)).toEqual(["showcase-rings.ts"]);
   });
 });
+
+describe("Z9 — row-ring ไม่เข้า first-load bundle (import graph ของ page.tsx)", () => {
+  const ROOT = process.cwd();
+  const EXTS = ["", ".ts", ".tsx", "/index.ts", "/index.tsx"];
+  // import type / export type ถูกลบตอน compile = ไม่เข้า bundle → ไม่นับเป็น edge ของ first-load
+  const STATIC_RE = /(?:^|\n)\s*(?:import|export)(\s+type)?\s[^;]*?from\s+["']([^"']+)["']|(?:^|\n)\s*import\s+["']([^"']+)["']/g;
+  const DYNAMIC_RE = /import\(\s*["']([^"']+)["']\s*\)/g;
+  function resolveSpec(from: string, spec: string): string | null {
+    let base: string;
+    if (spec.startsWith("@/")) base = join(ROOT, spec.slice(2));
+    else if (spec.startsWith(".")) base = join(from, "..", spec);
+    else return null;
+    for (const ext of EXTS) {
+      const p = base + ext;
+      try {
+        if (statSync(p).isFile()) return p;
+      } catch {
+        /* ลองนามสกุลถัดไป */
+      }
+    }
+    return null;
+  }
+  function reach(entry: string, includeDynamic: boolean): Set<string> {
+    const seen = new Set<string>();
+    const stack = [entry];
+    while (stack.length) {
+      const f = stack.pop() as string;
+      if (seen.has(f) || !/\.tsx?$/.test(f)) continue;
+      seen.add(f);
+      const src = readFileSync(f, "utf8");
+      const specs = [...src.matchAll(STATIC_RE)].filter((m) => !m[1]).map((m) => m[2] ?? m[3]);
+      if (includeDynamic) specs.push(...[...src.matchAll(DYNAMIC_RE)].map((m) => m[1]));
+      for (const s of specs) {
+        const r = resolveSpec(f, s);
+        if (r) stack.push(r);
+      }
+    }
+    return new Set([...seen].map((f) => f.split(/[\\/]/).slice(-1)[0]));
+  }
+  const page = join(process.cwd(), "app", "(quiz)", "ring-builder", "page.tsx");
+
+  it("กราฟ static ของ page.tsx (= first-load) ไม่แตะ row-ring / row-presets / showcase-rings / RingViewer / bypass-ring", () => {
+    const files = reach(page, false);
+    for (const f of ["row-ring.ts", "row-presets.ts", "showcase-rings.ts", "RingViewer.tsx", "bypass-ring.ts", "RingStage.tsx"]) {
+      // RingStage ถูก import แบบ static (ตัวคุม) — แต่ตัว builder ต้องไม่อยู่
+      if (f === "RingStage.tsx") expect(files.has(f)).toBe(true);
+      else expect(files.has(f), f).toBe(false);
+    }
+  });
+  it("กราฟรวม dynamic import: RingViewer.tsx ลาก showcase-rings → row-ring/row-presets/bypass-ring (อยู่ใน chunk lazy)", () => {
+    const files = reach(page, true);
+    for (const f of ["RingViewer.tsx", "showcase-rings.ts", "row-ring.ts", "row-presets.ts", "bypass-ring.ts"]) expect(files.has(f), f).toBe(true);
+  });
+  it("showcase-rings ถูก import จาก RingViewer.tsx ตัวเดียว", () => {
+    const hits: string[] = [];
+    const walk = (dir: string) => {
+      for (const name of readdirSync(dir)) {
+        if (["node_modules", ".next", ".git", ".claude", "docs"].includes(name)) continue;
+        const full = join(dir, name);
+        if (statSync(full).isDirectory()) walk(full);
+        else if (/\.tsx?$/.test(name) && !/\.test\.tsx?$/.test(name) && /from\s+["'][^"']*\/showcase-rings["']/.test(readFileSync(full, "utf8"))) hits.push(name);
+      }
+    };
+    for (const d of ["lib", "app", "components"]) {
+      try {
+        walk(join(process.cwd(), d));
+      } catch {
+        /* ไม่มีโฟลเดอร์ */
+      }
+    }
+    expect(hits).toEqual(["RingViewer.tsx"]);
+  });
+});

@@ -1,6 +1,7 @@
 "use client";
 
-// RingShowcaseClient — หน้า "แบบของ 3J Jewelry" (/ring-builder): แหวนไขว้พลอยไข่ 2 เม็ด แบบเดียว · ราคา/ไซซ์/รูปมาจาก lib/ring-builder/showcase/config.ts
+// RingShowcaseClient — หน้า "แบบของ 3J Jewelry" (/ring-builder): เลือกได้ 7 แบบแหวน (D1.2) · ราคา = config.ts · ชื่อ/ตำแหน่งพลอย/ไซซ์ = designs.ts · รูป = _assets
+// D1.2 state เพิ่ม: designId (แบบแหวน · เริ่มจาก `r`) — เปลี่ยนแบบไม่ล้าง พลอย/โหมด/เรื่อง/ไซซ์ดิบ · effectiveSize คำนวณใน render ที่เดียว (ไซซ์ดิบนอกช่วงของแบบ → null) แล้วส่งให้ SizePicker/สรุป/LINE ทุกจุด (Z2)
 // D1.1 (17 พ.ย. 69): 2 โหมด "แบบแนะนำ" (แบบ 1/2/3 ตามเรื่องที่เลือก) | "เลือกพลอยเอง" (5 ชนิด × 2 เม็ด) · เปลี่ยนเรื่องบนหน้าแหวนได้โดยไม่ทำ quiz ใหม่
 // state (design §9.3): intention · recIndex 1–3 · own {top,bottom}|null · active rec|own · size + ผลวัดล่าสุดที่อ่านจาก localStorage หลัง mount — ไม่มี fetch/Server Action/DB (X5)
 //   สลับ active ไม่ล้างอีกฝั่ง · เปลี่ยนเรื่อง → recIndex=1, active=rec, own คงเดิม · own มีครบ 2 เม็ดหรือไม่มีเลย (ห้ามครึ่งเดียว)
@@ -11,11 +12,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { GEM_QUIZ_DISCLAIMER, type GemQuizIntention, type GemQuizStoneCode } from "@/lib/gem-quiz/config";
 import { getLastMeasuredSize, type LastMeasuredSize } from "@/lib/ring-builder/last-size";
-import { SHOWCASE_COPY, SHOWCASE_DESIGN_NAME, formatPriceThb, leadTimeLabel } from "@/lib/ring-builder/showcase/config";
-import { DIRECT_STONE_LABEL, type ShowcaseChoice } from "@/lib/ring-builder/showcase/line-message";
+import { SHOWCASE_COPY, formatPriceThb, leadTimeLabel } from "@/lib/ring-builder/showcase/config";
+import { getShowcaseDesign, roleMainLabel, roleSubLabel, type ShowcaseDesignId } from "@/lib/ring-builder/showcase/designs";
+import { DIRECT_STONE_LABEL, isShowcaseSize, type ShowcaseChoice } from "@/lib/ring-builder/showcase/line-message";
 import { buildShowcaseUrl, type GemTop3, type IntentionTable, type OwnGems, type ShowcaseParams } from "@/lib/ring-builder/showcase/quiz-link";
 import { buildShowcaseSets, intentionOnlyTop3, stoneLabel } from "@/lib/ring-builder/showcase/sets";
 import { SHOWCASE_PHOTOS } from "./_assets";
+import { DesignPicker } from "./_components/DesignPicker";
 import { GemSetPicker } from "./_components/GemSetPicker";
 import { IntentionPicker, intentionLabel } from "./_components/IntentionPicker";
 import { ModeSwitch, type ShowcaseMode } from "./_components/ModeSwitch";
@@ -46,6 +49,8 @@ export function RingShowcaseClient({ params }: { params: ShowcaseParams }) {
   const sets = useMemo(() => (recTop3 ? buildShowcaseSets(recTop3) : null), [recTop3]);
 
   const [recIndex, setRecIndex] = useState<RecIndex>(() => (recTop3 && typeof params.design === "number" ? params.design : 1));
+  const [designId, setDesignId] = useState<ShowcaseDesignId>(params.ring);
+  // ไซซ์ดิบ (ที่ผู้ใช้กด) — ไม่ถูกลบเมื่อสลับไปแบบที่ไซซ์นี้ใช้ไม่ได้ · ใช้ผ่าน effectiveSize เท่านั้น
   const [size, setSize] = useState<number | null>(null);
   const [lastMeasured, setLastMeasured] = useState<LastMeasuredSize | null>(null);
   const [announce, setAnnounce] = useState("");
@@ -64,6 +69,11 @@ export function RingShowcaseClient({ params }: { params: ShowcaseParams }) {
   const badgeKind = fromQuiz ? "quiz" : "intention";
   const basisNote = intention === null ? null : fromQuiz ? SHOWCASE_COPY.basisQuiz : SHOWCASE_COPY.basisIntention;
 
+  const design = getShowcaseDesign(designId);
+  // 🔴 Z2: ไซซ์ที่ส่งต่อทุกจุด (ปุ่ม/สรุป/LINE) = ไซซ์ดิบที่ใช้กับแบบปัจจุบันได้เท่านั้น · สลับกลับแบบที่ใช้ได้ → กลับมาเอง
+  const effectiveSize: number | null = size !== null && isShowcaseSize(size, designId) ? size : null;
+  const outOfRangeSize: number | null = size !== null && effectiveSize === null ? size : null;
+
   const currentSet = sets ? (sets.find((s) => s.index === recIndex) ?? sets[0]) : null;
 
   // พลอยที่แสดงบนแหวน + ค่าที่ส่งเข้า LINE/สรุป (ค่าเดียวกัน)
@@ -74,7 +84,8 @@ export function RingShowcaseClient({ params }: { params: ShowcaseParams }) {
   const bottomCode: GemQuizStoneCode | null = choice.kind === "direct" ? null : choice.bottom;
   const topLabel = topCode ? stoneLabel(topCode) : DIRECT_STONE_LABEL;
   const bottomLabel = bottomCode ? stoneLabel(bottomCode) : DIRECT_STONE_LABEL;
-  const stageAria = `ภาพจำลองแหวน 3 มิติ พลอยบน ${topLabel} พลอยล่าง ${bottomLabel} CZ เล็ก 2 เม็ด`;
+  const stageAria = `ภาพจำลอง${design.name} 3 มิติ ${roleMainLabel(design)} ${topLabel} ${roleSubLabel(design)} ${bottomLabel}${design.extraCz > 0 ? ` CZ เล็ก ${design.extraCz} เม็ด` : ""}`;
+  const photos = SHOWCASE_PHOTOS[designId];
 
   // เขียน state กลับ URL (ไม่เพิ่ม history) — เก็บ t + q เสมอเมื่อมีตาราง: reload/แชร์ได้อันดับชุดเดิม และป้าย "จากแบบทดสอบ" ตัดสินจาก i === q (Y6)
   const url = buildShowcaseUrl({
@@ -85,6 +96,7 @@ export function RingShowcaseClient({ params }: { params: ShowcaseParams }) {
     own,
     active,
     recIndex: sets ? recIndex : 1,
+    ring: designId,
   });
   useEffect(() => {
     try {
@@ -102,6 +114,14 @@ export function RingShowcaseClient({ params }: { params: ShowcaseParams }) {
       setOwn({ top: currentSet.top, bottom: currentSet.bottom });
     }
     setActive(next);
+  }
+
+  function changeDesign(next: ShowcaseDesignId) {
+    if (next === designId) return;
+    setDesignId(next);
+    const nextDesign = getShowcaseDesign(next);
+    const sizeOut = size !== null && !isShowcaseSize(size, next);
+    setAnnounce(SHOWCASE_COPY.designAnnounce(nextDesign.name) + (sizeOut ? SHOWCASE_COPY.designAnnounceSizeOut(size) : ""));
   }
 
   function changeIntention(next: GemQuizIntention) {
@@ -127,54 +147,56 @@ export function RingShowcaseClient({ params }: { params: ShowcaseParams }) {
         <div className="sticky top-0 z-20 -mx-4 bg-[var(--gq-ivory)] px-4 pb-2 pt-[max(0.5rem,env(safe-area-inset-top))] lg:static lg:top-auto lg:z-0 lg:row-span-4 lg:row-start-1 lg:mx-0 lg:bg-transparent lg:px-0 lg:pb-0 lg:pt-6">
           <div className="lg:sticky lg:top-6">
             <RingStage
+              design={design}
               top={topCode}
               bottom={bottomCode}
               ariaLabel={stageAria}
-              photo={SHOWCASE_PHOTOS[0]}
-              photoAlt={photoAlt(0, SHOWCASE_PHOTOS.length)}
+              photo={photos[0]}
+              photoAlt={photos.length > 0 ? photoAlt(design.name, 0, photos.length) : design.name}
             />
           </div>
         </div>
 
         <header className="min-w-0 lg:col-start-2 lg:row-start-1 lg:pt-6">
           <p className="pl-[0.4em] font-quiz-display text-[13px] font-semibold tracking-[0.4em] text-[var(--gq-burgundy-dark)]">3J · JEWELRY</p>
-          <h1 className="mt-2 font-quiz-serif text-2xl font-semibold leading-snug text-[var(--gq-burgundy-dark)]">{SHOWCASE_DESIGN_NAME}</h1>
+          <h1 className="mt-2 font-quiz-serif text-2xl font-semibold leading-snug text-[var(--gq-burgundy-dark)]">{SHOWCASE_COPY.h1}</h1>
           <p className="mt-1 text-base">
-            <span className="font-medium">{formatPriceThb()}</span>
+            <span className="font-medium">{SHOWCASE_COPY.priceAllDesigns(formatPriceThb())}</span>
             <span className="text-[var(--gq-text-muted)]"> · {leadTimeLabel()}</span>
           </p>
         </header>
 
         <div className="flex min-w-0 flex-col gap-5 lg:col-start-2 lg:row-start-2">
+          <DesignPicker value={designId} onChange={changeDesign} />
+          <p role="status" className="sr-only">
+            {announce}
+          </p>
           <ModeSwitch mode={active} onChange={changeMode} />
           {active === "rec" ? (
             <>
               <IntentionPicker value={intention} onSelect={changeIntention} />
-              <p role="status" className="sr-only">
-                {announce}
-              </p>
-              <GemSetPicker sets={sets} selectedIndex={recIndex} onSelect={setRecIndex} badgeKind={badgeKind} basisNote={basisNote} />
+              <GemSetPicker design={design} sets={sets} selectedIndex={recIndex} onSelect={setRecIndex} badgeKind={badgeKind} basisNote={basisNote} />
             </>
           ) : (
-            <OwnGemPicker own={own} onPickTop={pickTop} onPickBottom={pickBottom} />
+            <OwnGemPicker design={design} own={own} onPickTop={pickTop} onPickBottom={pickBottom} />
           )}
         </div>
 
         <div className="min-w-0 lg:col-start-2 lg:row-start-3">
-          <SizePicker value={size} onChange={setSize} lastMeasured={lastMeasured} />
+          <SizePicker design={design} value={effectiveSize} outOfRangeSize={outOfRangeSize} onChange={setSize} lastMeasured={lastMeasured} />
         </div>
 
         <div className="min-w-0 lg:col-span-2 lg:row-start-5">
-          <PhotoGallery photos={SHOWCASE_PHOTOS} />
+          <PhotoGallery photos={photos} designName={design.name} />
         </div>
 
         <div className="flex min-w-0 flex-col gap-4 lg:col-start-2 lg:row-start-4">
-          <OrderSummary choice={choice} size={size} />
+          <OrderSummary designId={designId} choice={choice} size={effectiveSize} />
           <div className="border-t border-[var(--gq-divider)] pt-4">
             <p className="text-xs leading-[1.65] text-[var(--gq-text-faint)]">
               <strong className="font-semibold">ข้อควรทราบ:</strong> {GEM_QUIZ_DISCLAIMER}
             </p>
-            <p className="mt-1.5 text-xs leading-[1.65] text-[var(--gq-text-faint)]">{SHOWCASE_COPY.czNote}</p>
+            {design.extraCz > 0 && <p className="mt-1.5 text-xs leading-[1.65] text-[var(--gq-text-faint)]">{SHOWCASE_COPY.czNote}</p>}
           </div>
         </div>
       </div>
