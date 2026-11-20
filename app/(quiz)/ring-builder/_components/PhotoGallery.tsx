@@ -1,14 +1,15 @@
 "use client";
 
-// PhotoGallery — "ดูของจริง": รูปจริง 5 รูป สไลด์แนวนอน scroll-snap + ปุ่ม ‹ › · รูปโหลดไม่ได้ = กรอบ ivory + "ลองอีกครั้ง"
+// PhotoGallery — "ดูของจริง": รูปจริงต่อแบบ สไลด์แนวนอน scroll-snap + ปุ่ม ‹ › · รูปโหลดไม่ได้ = กรอบ ivory + "ลองอีกครั้ง"
 // <img> ธรรมดา (static asset จาก /_next/static) · alt ตามมุมถ่าย — TODO_OWNER_PHOTO_CAPTION (config.ts) ยังไม่ผ่านการยืนยัน
 import { useRef, useState } from "react";
-import { SHOWCASE_COPY, SHOWCASE_PHOTO_VIEWS } from "@/lib/ring-builder/showcase/config";
+import { SHOWCASE_COPY } from "@/lib/ring-builder/showcase/config";
 import type { ShowcasePhoto } from "../_assets";
 
-/** alt ของรูปจริง — ชื่อแบบ + มุมถ่าย (ชื่อมุมมีให้เฉพาะรูปแบบไขว้ที่เจ้าของส่งมา) */
-export function photoAlt(designName: string, index: number, total: number): string {
-  return `${designName} รูปที่ ${index + 1} จาก ${total} — ${SHOWCASE_PHOTO_VIEWS[index] ?? ""}`.trim();
+/** alt ของรูปจริง — มีชื่อมุมถ่าย (เฉพาะแบบไขว้ที่เจ้าของระบุ) = "ชื่อแบบ รูปที่ n จาก N — มุม" · ไม่มี = "ภาพถ่ายจริง ชื่อแบบ รูปที่ n จาก N" (ไม่แต่งมุมที่ไม่รู้) */
+export function photoAlt(designName: string, index: number, total: number, views?: readonly string[]): string {
+  const view = views?.[index];
+  return view ? `${designName} รูปที่ ${index + 1} จาก ${total} — ${view}` : `ภาพถ่ายจริง ${designName} รูปที่ ${index + 1} จาก ${total}`;
 }
 
 function PhotoSlide({ photo, alt }: { photo: ShowcasePhoto; alt: string }) {
@@ -51,7 +52,7 @@ function PhotoSlide({ photo, alt }: { photo: ShowcasePhoto; alt: string }) {
   );
 }
 
-export function PhotoGallery({ photos, designName }: { photos: readonly ShowcasePhoto[]; designName: string }) {
+export function PhotoGallery({ photos, designName, views }: { photos: readonly ShowcasePhoto[]; designName: string; views?: readonly string[] }) {
   const scrollerRef = useRef<HTMLDivElement | null>(null);
 
   function scrollByPage(dir: 1 | -1) {
@@ -105,7 +106,7 @@ export function PhotoGallery({ photos, designName }: { photos: readonly Showcase
       >
         {photos.map((photo, i) => (
           <div key={photo.src} className="w-[80%] flex-none snap-center sm:w-[46%] lg:w-[24%]">
-            <PhotoSlide photo={photo} alt={photoAlt(designName, i, photos.length)} />
+            <PhotoSlide photo={photo} alt={photoAlt(designName, i, photos.length, views)} />
           </div>
         ))}
       </div>

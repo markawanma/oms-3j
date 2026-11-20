@@ -88,6 +88,32 @@ export function GemRow({
   );
 }
 
+/** ปุ่ม "กลับเป็น CZ ขาวทั้งหมด" + "เลิกทำ" — ใช้ร่วมกันทั้งโหมดรายเม็ด (แถว) และคู่บน/ล่าง (ไขว้) */
+function ResetUndoButtons({ showReset, onResetCz, canUndo, onUndo }: { showReset: boolean; onResetCz: () => void; canUndo: boolean; onUndo: () => void }) {
+  return (
+    <>
+      {showReset && (
+        <button
+          type="button"
+          onClick={onResetCz}
+          className="inline-flex min-h-12 w-full items-center justify-center rounded-full border border-[var(--gq-border)] bg-white px-4 text-[15px] font-medium text-[var(--gq-text)] transition-colors hover:border-[var(--gq-burgundy-border)] hover:bg-[var(--gq-burgundy-soft)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--gq-burgundy)]"
+        >
+          {SHOWCASE_COPY.ownResetCz}
+        </button>
+      )}
+      {canUndo && (
+        <button
+          type="button"
+          onClick={onUndo}
+          className="inline-flex min-h-11 w-full items-center justify-center rounded-full px-4 text-sm font-medium text-[var(--gq-text-muted)] underline underline-offset-4 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--gq-burgundy)]"
+        >
+          {SHOWCASE_COPY.ownUndo}
+        </button>
+      )}
+    </>
+  );
+}
+
 /** โหมดรายเม็ด (D1.2a) — แบบแถว 3–7 เม็ด · state อยู่ที่ RingShowcaseClient */
 export interface PerGemProps {
   /** null = ยังไม่เคยเลือก · ไม่เคยมีเม็ด "ว่างครึ่งๆ" (ครบทุกเม็ดหรือไม่มีเลย) */
@@ -130,24 +156,7 @@ function PerGemPicker({ design, codes, count, selected, onSelect, onPick, onFill
               {SHOWCASE_COPY.ownFillAll(slotLabel(current))}
             </button>
           )}
-          {showReset && (
-            <button
-              type="button"
-              onClick={onResetCz}
-              className="inline-flex min-h-12 w-full items-center justify-center rounded-full border border-[var(--gq-border)] bg-white px-4 text-[15px] font-medium text-[var(--gq-text)] transition-colors hover:border-[var(--gq-burgundy-border)] hover:bg-[var(--gq-burgundy-soft)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--gq-burgundy)]"
-            >
-              {SHOWCASE_COPY.ownResetCz}
-            </button>
-          )}
-          {canUndo && (
-            <button
-              type="button"
-              onClick={onUndo}
-              className="inline-flex min-h-11 w-full items-center justify-center rounded-full px-4 text-sm font-medium text-[var(--gq-text-muted)] underline underline-offset-4 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--gq-burgundy)]"
-            >
-              {SHOWCASE_COPY.ownUndo}
-            </button>
-          )}
+          <ResetUndoButtons showReset={showReset} onResetCz={onResetCz} canUndo={canUndo} onUndo={onUndo} />
         </div>
       )}
 
@@ -190,13 +199,16 @@ export function OwnGemPicker({
   own,
   onPickTop,
   onPickBottom,
+  bypassActions,
   perGem,
 }: {
   design: ShowcaseDesign;
   /** null = ยังไม่ได้เลือกเลย (เข้าตรง) */
   own: OwnGems | null;
-  onPickTop: (code: GemQuizStoneCode) => void;
-  onPickBottom: (code: GemQuizStoneCode) => void;
+  onPickTop: (code: SlotCode) => void;
+  onPickBottom: (code: SlotCode) => void;
+  /** ไขว้: "กลับเป็น CZ ขาวทั้งหมด" + เลิกทำ (เหมือนโหมดรายเม็ดของแบบแถว) */
+  bypassActions?: { onResetCz: () => void; onUndo: () => void; canUndo: boolean };
   /** แบบแถว: โหมดรายเม็ด (ไขว้ไม่ส่ง = 2 แถวบน/ล่างเดิม) */
   perGem?: PerGemProps;
 }) {
@@ -205,11 +217,18 @@ export function OwnGemPicker({
   return (
     <div className="flex flex-col gap-4">
       <PlacementNote design={design} />
-      <GemRow label={roleMainLabel(design)} value={own ? own.top : null} onPick={(c) => c !== CZ_SLOT && onPickTop(c)} />
-      <GemRow label={roleSubLabel(design)} value={own ? own.bottom : null} onPick={(c) => c !== CZ_SLOT && onPickBottom(c)} />
+      <GemRow label={roleMainLabel(design)} value={own ? own.top : null} onPick={onPickTop} withCz />
+      <GemRow label={roleSubLabel(design)} value={own ? own.bottom : null} onPick={onPickBottom} withCz />
+      {bypassActions && own && (!isAllCz([own.top, own.bottom]) || bypassActions.canUndo) && (
+        <div className="flex flex-col gap-2">
+          <ResetUndoButtons showReset={!isAllCz([own.top, own.bottom])} onResetCz={bypassActions.onResetCz} canUndo={bypassActions.canUndo} onUndo={bypassActions.onUndo} />
+        </div>
+      )}
 
+      {/* CZ ขาวทั้งคู่ = ไม่มีคำอธิบายพลอย (CZ ไม่มีความหมาย/ความเชื่อ) -> ไม่แสดงการ์ด · ยังไม่เลือกเลย = คำใบ้ */}
+      {(own === null || desc !== null) && (
       <div aria-live="polite" className="flex flex-col gap-1.5 rounded-2xl border border-[var(--gq-border-soft)] bg-white px-4 py-3.5">
-        {desc === null && <p className="text-sm text-[var(--gq-text-muted)]">{SHOWCASE_COPY.ownEmptyHint}</p>}
+        {own === null && <p className="text-sm text-[var(--gq-text-muted)]">{SHOWCASE_COPY.ownEmptyHint}</p>}
         {desc?.kind === "pair" && (
           <>
             <p className="font-quiz-display text-xl font-semibold text-[var(--gq-burgundy-dark)]">{desc.pair.title}</p>
@@ -219,7 +238,7 @@ export function OwnGemPicker({
         )}
         {desc?.kind === "same" && (
           <>
-            <p className="text-base font-medium text-[var(--gq-burgundy-dark)]">{SHOWCASE_COPY.ownBothSame(desc.label)}</p>
+            <p className="text-base font-medium text-[var(--gq-burgundy-dark)]">{desc.withCz ? desc.label : SHOWCASE_COPY.ownBothSame(desc.label)}</p>
             <p className="text-sm text-[var(--gq-text-muted)]">{desc.keywords}</p>
           </>
         )}
@@ -235,6 +254,7 @@ export function OwnGemPicker({
           </>
         )}
       </div>
+      )}
     </div>
   );
 }

@@ -85,7 +85,7 @@ describe("QA own-cz - UI", () => {
     const body = document.body.textContent ?? "";
     expect(body).not.toMatch(/เพชร|พลอยหลัก|พลอยเสริม/);
   });
-  it("สลับแบบ แถว↔แถว↔ไขว้: CZ คงข้ามแถว · ไปไขว้ไม่มี z · กลับแถวได้ค่าเดิม", async () => {
+  it("สลับแบบ แถว↔แถว↔ไขว้: CZ คงข้ามแถว · ไปไขว้ส่ง CZ ต่อ (รหัสเต็ม cz ไม่ใช่ z) · กลับแถวได้ค่าเดิม", async () => {
     const u = await openOwn("bar7");
     await u.click(gem(1, "โกเมน"));
     await u.click(slot(3));
@@ -93,7 +93,9 @@ describe("QA own-cz - UI", () => {
     await u.click(designRadio("channel4"));
     expect(url()).toMatch(/c=[gz.]+/);
     await u.click(designRadio("bypass2"));
-    expect(url()).not.toMatch(/c=[^&]*z/);
+    // แถว 4 เม็ด [โกเมน, CZ... ] → ไขว้: บน = เม็ดกลางตัวแรก (เม็ด 2) · ล่าง = เม็ด 1 = โกเมน · URL ใช้รหัสเต็ม ไม่ใช่ตัวอักษร z
+    expect(url()).toMatch(/c=[a-z_]+\.[a-z_]+&/);
+    expect(url()).not.toMatch(/c=[^&]*z/);
     await u.click(designRadio("bar7"));
     expect(slot(3)).toHaveAccessibleName("เม็ดที่ 3 CZ ขาว");
     expect(slot(1)).toHaveAccessibleName("เม็ดที่ 1 โกเมน");
@@ -103,13 +105,61 @@ describe("QA own-cz - UI", () => {
     await u.click(gem(1, "CZ ขาว"));
     await u.click(designRadio("bypass2"));
     expect(screen.getByRole("link", { name: /ส่งให้แอดมินทาง LINE/ })).toBeInTheDocument();
-    expect(url()).not.toMatch(/c=[^&]*z/);
+    expect(url()).toContain("c=cz.cz");
     await u.click(designRadio("trinity"));
     expect(slot(1)).toHaveAccessibleName("เม็ดที่ 1 CZ ขาว");
   });
-  it("ไขว้ไม่มี CZ ในตัวเลือก", async () => {
+  it("ไขว้: CZ ขาวเป็นตัวเลือกที่ 6 ทั้งบนและล่าง · 5 ตำแหน่งเดิมไม่ขยับ", async () => {
     await openOwn("bypass2");
-    expect(screen.queryByRole("radio", { name: "CZ ขาว" })).toBeNull();
+    const cz = screen.getAllByRole("radio", { name: "CZ ขาว" });
+    expect(cz).toHaveLength(2);
+    for (const g of screen.getAllByRole("radiogroup").filter((x) => within(x).queryByRole("radio", { name: "โกเมน" }))) {
+      const names = within(g).getAllByRole("radio").map((r) => r.getAttribute("aria-label"));
+      expect(names).toHaveLength(6);
+      expect(names[5]).toBe("CZ ขาว");
+    }
+  });
+  it("ไขว้: เลือก CZ บน/ล่าง · URL = รหัสเต็ม · LINE/สรุป ชัดเจน 890 ไม่มีเพชร · CZ ล้วนไม่มีการ์ดคำอธิบาย · รีเซ็ต + เลิกทำ", async () => {
+    const u = await openOwn("bypass2");
+    const [topCz, bottomCz] = screen.getAllByRole("radio", { name: "CZ ขาว" });
+    const [topGarnet, bottomGarnet] = screen.getAllByRole("radio", { name: "โกเมน" });
+    expect(screen.queryByRole("button", { name: RESET })).toBeNull();
+    await u.click(topGarnet);
+    await u.click(bottomCz);
+    expect(url()).toContain("c=garnet.cz");
+    let msg = lineMessage();
+    expect(msg).toContain("พลอยหลัก (เม็ดบน): โกเมน");
+    expect(msg).toContain("พลอยเสริม (เม็ดล่าง): CZ ขาว");
+    expect(msg).toContain("890");
+    expect(msg).not.toContain("เพชร");
+    // โกเมน+CZ = คำอธิบายโกเมนตัวเดียว (ไม่ใช่ "ทั้งสองเม็ด")
+    expect(screen.queryByText(/โกเมน ทุกเม็ด/)).toBeNull();
+    await u.click(topCz);
+    expect(url()).toContain("c=cz.cz");
+    msg = lineMessage();
+    expect(msg).toContain("พลอยหลัก (เม็ดบน): CZ ขาว");
+    expect(msg).toContain("พลอยเสริม (เม็ดล่าง): CZ ขาว");
+    expect(msg).not.toContain("เพชร");
+    expect(screen.queryByRole("button", { name: RESET })).toBeNull();
+    expect(screen.queryByText("แตะพลอยหลักก่อน ระบบใส่ชนิดเดียวกันให้พลอยเสริม แล้วเปลี่ยนได้")).toBeNull(); // CZ ล้วน ≠ ยังไม่เลือก
+    await u.click(bottomGarnet);
+    await u.click(screen.getByRole("button", { name: RESET }));
+    expect(url()).toContain("c=cz.cz");
+    expect(screen.queryByRole("button", { name: RESET })).toBeNull();
+    await u.click(screen.getByRole("button", { name: "เลิกทำ" }));
+    expect(url()).toContain("c=cz.garnet");
+  });
+  it("ไขว้ ↔ แถว: CZ ส่งต่อกันได้ ไม่ crash", async () => {
+    const u = await openOwn("bypass2");
+    await u.click(screen.getAllByRole("radio", { name: "CZ ขาว" })[0]);
+    await u.click(screen.getAllByRole("radio", { name: "โกเมน" })[1]);
+    expect(url()).toContain("c=cz.garnet");
+    await u.click(designRadio("trinity"));
+    // ไขว้→แถว: เม็ดกลาง = บน (CZ) · เม็ดข้าง = ล่าง (โกเมน)
+    expect(slot(2)).toHaveAccessibleName("เม็ดที่ 2 CZ ขาว");
+    expect(slot(1)).toHaveAccessibleName("เม็ดที่ 1 โกเมน");
+    await u.click(designRadio("bypass2"));
+    expect(url()).toContain("c=cz.garnet");
   });
 });
 
@@ -127,6 +177,21 @@ describe("QA own-cz - reload + ลิงก์เสีย", () => {
       render(<RingShowcaseClient params={readShowcaseParams({ c, d: "own", r: "bar7" })} />);
       expect(url()).not.toContain("Z");
       expect(url()).not.toContain("cz.cz");
+    }
+  });
+  it("ลิงก์ไขว้: รหัสเต็มเดิมยังใช้ได้ · cz โหลดกลับถูก · ตัวอักษร z / CZ ตัวใหญ่ = ไม่เลือก ไม่ crash", () => {
+    render(<RingShowcaseClient params={readShowcaseParams({ c: "garnet.amethyst", d: "own" })} />);
+    expect(screen.getAllByRole("radio", { name: "โกเมน", checked: true })).toHaveLength(1);
+    cleanup();
+    window.history.replaceState(null, "", "/ring-builder");
+    render(<RingShowcaseClient params={readShowcaseParams({ c: "cz.amethyst", d: "own" })} />);
+    expect(screen.getAllByRole("radio", { name: "CZ ขาว", checked: true })).toHaveLength(1);
+    expect(url()).toContain("c=cz.amethyst");
+    for (const c of ["z.amethyst", "CZ.amethyst", "cz.cz.cz"]) {
+      cleanup();
+      window.history.replaceState(null, "", "/ring-builder");
+      render(<RingShowcaseClient params={readShowcaseParams({ c, d: "own" })} />);
+      expect(url()).not.toContain("c=");
     }
   });
   it("ลิงก์ D1.2 เดิม c=g.a (2 ตัว) บนแบบแถวยังขยายได้", () => {

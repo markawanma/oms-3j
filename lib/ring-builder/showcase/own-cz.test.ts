@@ -32,10 +32,22 @@ describe("URL c — z = CZ ขาว", () => {
     expect(parseOwnSlotsParam("g.z.a", "cross")).toBeNull();
     expect(parseOwnSlotsParam(["g.z.a"], id)).toBeNull();
   });
-  it("c ของไขว้ (รหัสเต็ม) ไม่รับ z/cz", () => {
+  it("c ของไขว้ (รหัสเต็ม) รับ cz · ไม่รับตัวอักษร z · ลิงก์เดิมพลอยล้วนเหมือนเดิม", () => {
     expect(parseOwnParam("z.garnet")).toBeNull();
-    expect(parseOwnParam("cz.garnet")).toBeNull();
+    expect(parseOwnParam("garnet.z")).toBeNull();
+    expect(parseOwnParam("cz.garnet")).toEqual({ top: Z, bottom: G });
+    expect(parseOwnParam("garnet.cz")).toEqual({ top: G, bottom: Z });
+    expect(parseOwnParam("cz.cz")).toEqual({ top: Z, bottom: Z });
     expect(parseOwnParam("garnet.amethyst")).toEqual({ top: G, bottom: A });
+    expect(parseOwnParam("CZ.garnet")).toBeNull();
+    expect(parseOwnParam("cz")).toBeNull();
+    expect(parseOwnParam("cz.cz.cz")).toBeNull();
+    // round-trip: สร้าง URL → อ่านกลับ · พลอยล้วน = byte เดิม
+    for (const own of [{ top: Z, bottom: G }, { top: G, bottom: Z }, { top: Z, bottom: Z }, { top: G, bottom: A }] as const) {
+      const url = buildShowcaseUrl({ table: null, intention: null, legacyTop3: null, own, active: "own", recIndex: 1 });
+      expect(url).toBe(`/ring-builder?c=${own.top}.${own.bottom}&d=own`);
+      expect(readShowcaseParams(Object.fromEntries(new URLSearchParams(url.split("?")[1]))).own).toEqual(own);
+    }
   });
   it("round-trip สร้าง→อ่านทุกแบบแถว + เขียน z เฉพาะแบบแถว", () => {
     for (const d of ROWS) {
@@ -70,11 +82,13 @@ describe("own-slots helpers", () => {
     const text = ownSlotLines(formatOwnSlots([G, Z, G, Z, G, Z, G])!).join("\n") + ownSlotsAria(all);
     expect(text).not.toMatch(/เพชร|หลัก|เสริม/);
   });
-  it("fitOwnToCount: แถว→ไขว้ ไม่ให้ CZ เข้าไขว้ · แถว CZ ล้วน→ไขว้ = null · แถว↔แถวคง CZ", () => {
+  it("fitOwnToCount: แถว↔ไขว้ ส่ง CZ ต่อได้ · แถว CZ ล้วน→ไขว้ CZ ล้วน · แถว↔แถวคง CZ", () => {
     expect(fitOwnToCount([G, Z, Z], 7)).toEqual([G, G, G, Z, Z, Z, Z].map((c, i) => [G, Z, Z][Math.min(Math.max(i + Math.floor((3 - 7) / 2), 0), 2)]));
-    const toCross = fitOwnToCount([Z, G, Z, A, Z], 2)!;
-    expect(toCross.every((c) => c !== Z)).toBe(true);
-    expect(fitOwnToCount(fillAll(5, Z), 2)).toBeNull();
+    expect(fitOwnToCount([Z, G, Z, A, Z], 2)).toEqual([Z, Z]); // บน = เม็ดกลาง (เม็ด 3) · ล่าง = เม็ด 1
+    expect(fitOwnToCount([G, A, Z, A, G], 2)).toEqual([Z, G]);
+    expect(fitOwnToCount(fillAll(5, Z), 2)).toEqual([Z, Z]);
+    expect(fitOwnToCount([Z, G], 7)![3]).toBe(Z);
+    expect(fitOwnToCount([Z, G], 7)![0]).toBe(G);
     expect(fitOwnToCount([G, Z, A], 3)).toEqual([G, Z, A]);
   });
 });
