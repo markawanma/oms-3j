@@ -100,21 +100,20 @@ describe("QA: คำอธิบายพลอย — CZ ไม่มีคว�
 });
 
 describe("QA: fitOwnToCount + tints ขอบเขต", () => {
-  it("ทุกคู่จำนวน (2,3,4,6,7) × (CZ ล้วน/ผสม) ไม่ throw · ไป 2 เม็ดไม่มี z · แถว↔แถวคง z", () => {
+  it("ทุกคู่จำนวน (2,3,4,6,7) × (CZ ล้วน/ผสม) ไม่ throw · ไม่ null · CZ ส่งต่อข้ามไขว้↔แถวได้ · แถว↔แถวคง z", () => {
     const counts = [2, 3, 4, 6, 7];
     for (const a of counts) for (const b of counts) {
       for (const mk of [() => fillAll(a, Z), () => Array.from({ length: a }, (_, i) => (i % 2 ? Z : G))] as (() => SlotCode[])[]) {
         const src = a === 2 ? ([G, A] as SlotCode[]) : mk();
         const out = fitOwnToCount(src, b);
-        if (out === null) { expect(b === 2 || a === 2).toBe(true); continue; }
+        expect(out).not.toBeNull();
         expect(out).toHaveLength(b);
-        if (b === 2) expect(out.includes(Z)).toBe(false);
       }
     }
     expect(fitOwnToCount([Z, Z, Z], 7)).toEqual(fillAll(7, Z));
   });
-  it("2 เม็ดที่มี z (นอก type) → null ไม่ throw · tints จำนวนไม่ตรง = CZ ทั้งหมด", () => {
-    expect(fitOwnToCount([Z, G] as SlotCode[], 5)).toBeNull();
+  it("2 เม็ดที่มีรหัสนอก whitelist → null ไม่ throw · tints จำนวนไม่ตรง = CZ ทั้งหมด", () => {
+    expect(fitOwnToCount(["bogus", G] as unknown as SlotCode[], 5)).toBeNull();
     for (const d of ROWS) expect(slotTints(d.id, [Z])).toHaveLength(ownSlotCount(d));
   });
 });

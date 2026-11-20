@@ -53,7 +53,6 @@ describe("ค่าจากเจ้าของ (12–18 พ.ย. 69)", () => 
     expect(getShowcaseDesign("bypass2").name).toBe("แหวนไขว้พลอยไข่ 2 เม็ด");
     const src = readFileSync(join(ROOT, "lib/ring-builder/showcase/designs.ts"), "utf8");
     for (const k of ["TODO_OWNER_DESIGN_NAME", "TODO_OWNER_SCROLL6_CENTER", "TODO_OWNER_EXTRA_CZ", "TODO_OWNER_SIZES"]) expect(src).toContain(k);
-    expect(readFileSync(join(ROOT, "app/(quiz)/ring-builder/_assets/index.ts"), "utf8")).toContain("TODO_OWNER_PHOTOS");
   });
 });
 

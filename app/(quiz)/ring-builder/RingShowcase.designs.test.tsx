@@ -9,6 +9,13 @@ import { DESIGNS, getShowcaseDesign, type ShowcaseDesignId } from "@/lib/ring-bu
 import { EMPTY_SHOWCASE_PARAMS, parseTableParam, type IntentionTable, type ShowcaseParams } from "@/lib/ring-builder/showcase/quiz-link";
 import type { LastMeasuredSize } from "@/lib/ring-builder/last-size";
 import { SHOWCASE_PHOTOS } from "./_assets";
+
+// ทดสอบกลไก "แบบที่ยังไม่มีรูป" (empty state / ไม่ข้ามแบบ Z6) — ตอนนี้ทุกแบบมีรูปจริงแล้ว จึงจำลองให้ 6 แบบแถวไม่มีรูป
+// รูปจริงของทุกแบบทดสอบแยกที่ RingShowcase.photos.test.tsx (ไม่ mock)
+vi.mock("./_assets", async (orig) => {
+  const m = await orig<typeof import("./_assets")>();
+  return { ...m, SHOWCASE_PHOTOS: { ...m.SHOWCASE_PHOTOS, trinity: [], scroll6: [], channel4: [], channel6: [], bar7: [], small7: [] } };
+});
 import { RingShowcaseClient } from "./RingShowcaseClient";
 
 const lastSizeMock = vi.hoisted(() => ({ read: vi.fn<() => LastMeasuredSize | null>(() => null) }));

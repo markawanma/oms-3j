@@ -40,11 +40,21 @@ export function findExactPair(a: GemQuizStoneCode, b: GemQuizStoneCode): GemQuiz
 
 export type OwnDescription =
   | { kind: "pair"; pair: GemQuizPair }
-  | { kind: "same"; code: GemQuizStoneCode; label: string; keywords: string }
+  /** withCz = อีกเม็ดเป็น CZ ขาว (คำอธิบายเป็นของพลอยตัวเดียว ไม่ใช่ "ทั้งสองเม็ด") */
+  | { kind: "same"; code: GemQuizStoneCode; label: string; keywords: string; withCz?: boolean }
   | { kind: "singles"; top: { label: string; keywords: string }; bottom: { label: string; keywords: string } };
 
 /** ข้อความอธิบายของคู่ที่เลือกเอง — ทุกข้อความมาจาก config (GEM_QUIZ_PAIRS / GEM_QUIZ_STONES) ไม่แต่งความหมายคู่ */
-export function describeOwn(top: GemQuizStoneCode, bottom: GemQuizStoneCode): OwnDescription {
+export function describeOwn(top: GemQuizStoneCode, bottom: GemQuizStoneCode): OwnDescription;
+/** รับ CZ ขาวด้วย (ไขว้): พลอย + CZ = คำอธิบายพลอยตัวเดียว (withCz) · CZ ทั้งคู่ = null (ไม่มีคำอธิบาย/ความหมาย) */
+export function describeOwn(top: SlotCode, bottom: SlotCode): OwnDescription | null;
+export function describeOwn(top: SlotCode, bottom: SlotCode): OwnDescription | null {
+  if (!isStoneCode(top) || !isStoneCode(bottom)) {
+    const stone = isStoneCode(top) ? top : isStoneCode(bottom) ? bottom : null;
+    if (!stone) return null;
+    const st = GEM_QUIZ_STONE_BY_CODE[stone];
+    return { kind: "same", code: stone, label: st.labelTh, keywords: st.keywords, withCz: true };
+  }
   const t = GEM_QUIZ_STONE_BY_CODE[top];
   const b = GEM_QUIZ_STONE_BY_CODE[bottom];
   if (top === bottom) return { kind: "same", code: top, label: t.labelTh, keywords: t.keywords };

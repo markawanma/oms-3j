@@ -4,7 +4,7 @@
 import { GEM_QUIZ_STONE_BY_CODE, type GemQuizStoneCode } from "@/lib/gem-quiz/config";
 import { mainIndexes, seedFromPair } from "./designs";
 import { CZ_WHITE } from "../config";
-import { CZ_SLOT, isSlotCode, isStoneCode, type SlotCode } from "./quiz-link";
+import { CZ_SLOT, isSlotCode, type SlotCode } from "./quiz-link";
 
 /** รหัสต่อเม็ด = พลอย 5 ชนิด หรือ "cz" (CZ ขาว) */
 export type OwnSlots = readonly SlotCode[];
@@ -34,22 +34,19 @@ export function slotLabel(code: SlotCode): string {
  * ปรับชุดสีให้พอดีจำนวนเม็ดใหม่ (A5) — จัดกึ่งกลางให้ตรงกัน: oldIdx = clamp(i + floor((old−new)/2), 0, old−1)
  *  7→3 เก็บเม็ด 3–5 · 7→4 เก็บเม็ด 2–5 · 3→7 = [1,1,1,2,3,3,3]
  * จาก/ไป ไขว้ (2 เม็ด = [บน, ล่าง]): ไขว้→แถว = กลาง=บน ที่เหลือ=ล่าง · แถว→ไขว้ = บน=เม็ดกลางตัวแรก ล่าง=เม็ดที่ 1
+ * CZ ขาวส่งต่อได้ทั้งสองทิศ (ไขว้รองรับ CZ แล้ว) — แถว CZ ล้วน → ไขว้ CZ ล้วน
  */
 export function fitOwnToCount(codes: OwnSlots, newN: number): SlotCode[] | null {
   const old = codes.length;
   if (old === newN) return [...codes];
   if (old === 2) {
-    // ไขว้ไม่มี CZ (ชุดของ 2 เม็ดเป็นพลอยล้วน) — กันค่านอก type system
+    // ไขว้ → แถว (กันค่านอก type system)
     const [a, b] = codes;
-    return isStoneCode(a) && isStoneCode(b) ? seedFromPair(newN, a, b) : null;
+    return isSlotCode(a) && isSlotCode(b) ? seedFromPair(newN, a, b) : null;
   }
   if (newN === 2) {
-    // แถว → ไขว้: ไขว้ไม่รองรับ CZ · เม็ดที่เป็น CZ แทนด้วยพลอยชนิดแรกที่เหลือในแถว · แถวเป็น CZ ล้วน = null (ไม่เดาสี)
-    const firstStone = codes.find(isStoneCode);
-    if (!firstStone) return null;
-    const top = codes[mainIndexes(old)[0]];
-    const bottom = codes[0];
-    return [isStoneCode(top) ? top : firstStone, isStoneCode(bottom) ? bottom : firstStone];
+    // แถว → ไขว้: บน = เม็ดกลางตัวแรก · ล่าง = เม็ดที่ 1 (CZ ส่งต่อตามตรง)
+    return [codes[mainIndexes(old)[0]], codes[0]];
   }
   const shift = Math.floor((old - newN) / 2);
   return Array.from({ length: newN }, (_, i) => codes[Math.min(Math.max(i + shift, 0), old - 1)]);

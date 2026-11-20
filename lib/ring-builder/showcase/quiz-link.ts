@@ -21,9 +21,10 @@ import { DEFAULT_DESIGN_ID, findShowcaseDesign, isShowcaseDesignId, seedFromPair
 
 export type GemTop3 = readonly [GemQuizStoneCode, GemQuizStoneCode, GemQuizStoneCode];
 export type IntentionTable = Readonly<Record<GemQuizIntention, GemTop3>>;
+/** พลอยเลือกเองของแบบไขว้ (บน/ล่าง) — พลอย 5 ชนิด หรือ CZ ขาว ("cz") */
 export interface OwnGems {
-  readonly top: GemQuizStoneCode;
-  readonly bottom: GemQuizStoneCode;
+  readonly top: SlotCode;
+  readonly bottom: SlotCode;
 }
 export type DesignParam = 1 | 2 | 3 | "own";
 
@@ -44,7 +45,7 @@ const LETTER_STONE: ReadonlyMap<string, GemQuizStoneCode> = new Map(
 
 /**
  * ตัวเลือกต่อเม็ดในโหมดรายเม็ด (own-cz) = พลอย 5 ชนิด หรือ CZ ขาว ("cz") · URL ใช้ตัวอักษร `z`
- * ใช้เฉพาะ `c` ของแบบแถว — `t` / `g` / `c` ของไขว้ ไม่รับ CZ (whitelist เดิม gacpb)
+ * ใช้กับ `c` — แบบแถว = ตัวอักษร (gacpbz) · แบบไขว้ = รหัสเต็ม (garnet / cz) · `t` / `g` ไม่รับ CZ (whitelist เดิม gacpb)
  */
 export type SlotCode = GemQuizStoneCode | "cz";
 export const CZ_SLOT = "cz" as const;
@@ -105,13 +106,16 @@ export function parseIntentionParam(raw: unknown): GemQuizIntention | null {
   return typeof raw === "string" && raw.length <= SHOWCASE_PARAM_MAX_LEN && isIntentionCode(raw) ? raw : null;
 }
 
-/** `c` — `<บน>.<ล่าง>` รหัสเต็ม 2 ตัวจาก 5 ชนิด ซ้ำกันได้ · CZ / ชนิดนอก 5 / เม็ดเดียว / 3 เม็ด = null */
+/**
+ * `c` ของไขว้ — `<บน>.<ล่าง>` รหัสเต็ม 2 ตัว: พลอย 5 ชนิด หรือ `cz` (CZ ขาว) ซ้ำกันได้ · ชนิดนอก whitelist / เม็ดเดียว / 3 เม็ด = null
+ * `cz` ไม่ชนลิงก์เดิม: ก่อนหน้านี้ `cz` ถูกปฏิเสธ (null) เสมอ ไม่มีลิงก์ที่แชร์ไปแล้วใช้ค่านี้ · ลิงก์เดิม (พลอยล้วน) parse/สร้างได้ byte เดิม
+ */
 export function parseOwnParam(raw: unknown): OwnGems | null {
   if (typeof raw !== "string" || raw.length === 0 || raw.length > SHOWCASE_PARAM_MAX_LEN) return null;
   const parts = raw.split(".");
   if (parts.length !== 2) return null;
   const [top, bottom] = parts;
-  return isStoneCode(top) && isStoneCode(bottom) ? { top, bottom } : null;
+  return isSlotCode(top) && isSlotCode(bottom) ? { top, bottom } : null;
 }
 
 /** จำนวนเม็ดของแบบแถว (null = ไขว้/id ผิด) */
@@ -253,7 +257,7 @@ export function buildShowcaseUrl(state: ShowcaseUrlState): string {
   const slotsOk = rowN !== null && Array.isArray(state.ownSlots) && state.ownSlots.length === rowN && state.ownSlots.every(isSlotCode);
   if (slotsOk) {
     parts.push(`${SHOWCASE_PARAM_OWN}=${(state.ownSlots as readonly SlotCode[]).map(slotLetter).join(".")}`);
-  } else if (state.own && isStoneCode(state.own.top) && isStoneCode(state.own.bottom)) {
+  } else if (state.own && isSlotCode(state.own.top) && isSlotCode(state.own.bottom)) {
     parts.push(`${SHOWCASE_PARAM_OWN}=${state.own.top}.${state.own.bottom}`);
   }
   if (state.active === "own") parts.push(`${SHOWCASE_PARAM_DESIGN}=own`);

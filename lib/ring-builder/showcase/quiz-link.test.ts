@@ -157,8 +157,8 @@ describe("Y1: i / c / d ผิดรูป → null ไม่ throw", () => {
     const bad: unknown[] = [
       "garnet",
       "garnet.citrine.peridot",
-      "cz.garnet",
-      "garnet.cz",
+      "z.garnet",
+      "garnet.z",
       "cz_white.cz_white",
       "ruby.garnet",
       "garnet.diamond",

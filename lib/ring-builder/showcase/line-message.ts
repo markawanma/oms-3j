@@ -10,8 +10,8 @@ import { lineOaMessageUrl } from "@/lib/shop/line";
 import { CZ_WHITE, LINE_COPY } from "../config";
 import { SHOWCASE_COPY, formatPriceThb, leadTimeLabel } from "./config";
 import { findShowcaseDesign, ownSlotCount, roleMainLabel, roleSubLabel, type ShowcaseDesign, type ShowcaseDesignId } from "./designs";
-import { formatOwnSlots, isOwnSlots, ownSlotLines, type OwnSlotRow } from "./own-slots";
-import { isStoneCode, type SlotCode } from "./quiz-link";
+import { formatOwnSlots, isOwnSlots, ownSlotLines, slotLabel, type OwnSlotRow } from "./own-slots";
+import { isSlotCode, isStoneCode, type SlotCode } from "./quiz-link";
 
 /** สิ่งที่ลูกค้าเลือก — ใช้ทั้งการ์ดสรุปบนจอและข้อความ LINE (จุดเดียว ไม่มีทางไม่ตรงกัน) · top = พลอยหลัก · bottom = พลอยเสริม */
 export type ShowcaseChoice =
@@ -20,7 +20,7 @@ export type ShowcaseChoice =
   /** ชุดแนะนำ 1..3 */
   | { kind: "rec"; index: number; top: GemQuizStoneCode; bottom: GemQuizStoneCode }
   /** เลือกพลอยเอง */
-  | { kind: "own"; top: GemQuizStoneCode; bottom: GemQuizStoneCode }
+  | { kind: "own"; top: SlotCode; bottom: SlotCode }
   /** เลือกพลอยเองรายเม็ด (D1.2a · แบบแถวเท่านั้น) — ซ้าย→ขวา ยาวเท่าจำนวนเม็ดของแบบ · ทุกเม็ดเท่ากัน ไม่มีหลัก/เสริม */
   | { kind: "ownSlots"; codes: readonly SlotCode[] };
 
@@ -61,11 +61,15 @@ export function resolveChoice(choice: unknown, design?: ShowcaseDesign): Resolve
     const label = c.unpicked === true ? SHOWCASE_COPY.gemNone : CZ_WHITE.name;
     return { gemsLine: label, mainLabel: label, subLabel: label };
   }
-  if (c.kind !== "rec" && c.kind !== "own") return null;
+  if (c.kind === "own") {
+    // ไขว้เลือกเอง: พลอย 5 ชนิด หรือ CZ ขาว (ชื่อ "CZ ขาว" จาก config) — ชุดแนะนำ (rec) ไม่มี CZ
+    if (!isSlotCode(c.top) || !isSlotCode(c.bottom)) return null;
+    return { gemsLine: SHOWCASE_COPY.summaryOwn, mainLabel: slotLabel(c.top), subLabel: slotLabel(c.bottom) };
+  }
+  if (c.kind !== "rec") return null;
   if (!isStoneCode(c.top) || !isStoneCode(c.bottom)) return null;
   const mainLabel = GEM_QUIZ_STONE_BY_CODE[c.top].labelTh;
   const subLabel = GEM_QUIZ_STONE_BY_CODE[c.bottom].labelTh;
-  if (c.kind === "own") return { gemsLine: SHOWCASE_COPY.summaryOwn, mainLabel, subLabel };
   if (typeof c.index !== "number" || !Number.isInteger(c.index) || c.index < 1 || c.index > 3) return null;
   return { gemsLine: SHOWCASE_COPY.setLabel(c.index), mainLabel, subLabel };
 }

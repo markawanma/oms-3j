@@ -14,11 +14,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { GEM_QUIZ_DISCLAIMER, type GemQuizIntention, type GemQuizStoneCode } from "@/lib/gem-quiz/config";
 import { getLastMeasuredSize, type LastMeasuredSize } from "@/lib/ring-builder/last-size";
-import { SHOWCASE_COPY, formatPriceThb, leadTimeLabel } from "@/lib/ring-builder/showcase/config";
+import { SHOWCASE_COPY, SHOWCASE_PHOTO_VIEWS, formatPriceThb, leadTimeLabel } from "@/lib/ring-builder/showcase/config";
 import { getShowcaseDesign, ownSlotCount, roleMainLabel, roleSubLabel, seedFromPair, type ShowcaseDesignId } from "@/lib/ring-builder/showcase/designs";
 import { DIRECT_STONE_LABEL, isShowcaseSize, type ShowcaseChoice } from "@/lib/ring-builder/showcase/line-message";
 import { fillAll, fitOwnToCount, formatOwnSlots, ownSlotsAria, slotLabel } from "@/lib/ring-builder/showcase/own-slots";
-import { buildShowcaseUrl, CZ_SLOT, isStoneCode, type SlotCode, type GemTop3, type IntentionTable, type OwnGems, type ShowcaseParams } from "@/lib/ring-builder/showcase/quiz-link";
+import { buildShowcaseUrl, CZ_SLOT, isSlotCode, isStoneCode, type SlotCode, type GemTop3, type IntentionTable, type OwnGems, type ShowcaseParams } from "@/lib/ring-builder/showcase/quiz-link";
 import { buildShowcaseSets, intentionOnlyTop3, stoneLabel } from "@/lib/ring-builder/showcase/sets";
 import { SHOWCASE_PHOTOS } from "./_assets";
 import { DesignPicker } from "./_components/DesignPicker";
@@ -93,8 +93,8 @@ export function RingShowcaseClient({ params }: { params: ShowcaseParams }) {
   const ownCount = ownSlotCount(design);
   const ownCodes: readonly SlotCode[] | null = ownByCount[ownCount] ?? null;
   const slot = Math.min(selectedSlot, ownCount - 1);
-  // ไขว้ (2 เม็ด) เก็บเฉพาะพลอย 5 ชนิด ไม่มี CZ (guard กันค่านอก type system)
-  const own: OwnGems | null = !isRow && ownCodes && isStoneCode(ownCodes[0]) && isStoneCode(ownCodes[1]) ? { top: ownCodes[0], bottom: ownCodes[1] } : null;
+  // ไขว้ (2 เม็ด): พลอย 5 ชนิด หรือ CZ ขาว ต่อเม็ด (guard กันค่านอก type system)
+  const own: OwnGems | null = !isRow && ownCodes && isSlotCode(ownCodes[0]) && isSlotCode(ownCodes[1]) ? { top: ownCodes[0], bottom: ownCodes[1] } : null;
   const ownSlots = isRow ? ownCodes : null;
 
   const currentSet = sets ? (sets.find((s) => s.index === recIndex) ?? sets[0]) : null;
@@ -104,8 +104,9 @@ export function RingShowcaseClient({ params }: { params: ShowcaseParams }) {
   if (active === "own" && ownSlots) choice = { kind: "ownSlots", codes: ownSlots };
   else if (active === "own" && own) choice = { kind: "own", top: own.top, bottom: own.bottom };
   else if (active === "rec" && currentSet) choice = { kind: "rec", index: currentSet.index, top: currentSet.top, bottom: currentSet.bottom };
-  const topCode: GemQuizStoneCode | null = choice.kind === "direct" || choice.kind === "ownSlots" ? null : choice.top;
-  const bottomCode: GemQuizStoneCode | null = choice.kind === "direct" || choice.kind === "ownSlots" ? null : choice.bottom;
+  // stage/aria: null = CZ ขาว (ชื่อเดียวกับ slotLabel("cz"))
+  const topCode: GemQuizStoneCode | null = choice.kind === "direct" || choice.kind === "ownSlots" || !isStoneCode(choice.top) ? null : choice.top;
+  const bottomCode: GemQuizStoneCode | null = choice.kind === "direct" || choice.kind === "ownSlots" || !isStoneCode(choice.bottom) ? null : choice.bottom;
   const topLabel = topCode ? stoneLabel(topCode) : DIRECT_STONE_LABEL;
   const bottomLabel = bottomCode ? stoneLabel(bottomCode) : DIRECT_STONE_LABEL;
   // รายเม็ด: aria ใช้ helper เดียวกับ LINE/สรุป · แถว+เลือกเองที่ยังไม่เลือก: ไม่มีคำหลัก/เสริม
@@ -117,6 +118,8 @@ export function RingShowcaseClient({ params }: { params: ShowcaseParams }) {
         ? `ภาพจำลอง${design.name} 3 มิติ ${SHOWCASE_COPY.gemNone}`
         : `ภาพจำลอง${design.name} 3 มิติ ${roleMainLabel(design)} ${topLabel} ${roleSubLabel(design)} ${bottomLabel}${design.extraCz > 0 ? ` CZ เล็ก ${design.extraCz} เม็ด` : ""}`;
   const photos = SHOWCASE_PHOTOS[designId];
+  // ชื่อมุมถ่ายมีเฉพาะรูปแบบไขว้ที่เจ้าของระบุ — แบบอื่นใช้ alt กลาง ไม่แต่งมุม
+  const photoViews = designId === "bypass2" ? SHOWCASE_PHOTO_VIEWS : undefined;
 
   // เขียน state กลับ URL (ไม่เพิ่ม history) — เก็บ t + q เสมอเมื่อมีตาราง: reload/แชร์ได้อันดับชุดเดิม และป้าย "จากแบบทดสอบ" ตัดสินจาก i === q (Y6)
   const url = buildShowcaseUrl({
@@ -176,11 +179,11 @@ export function RingShowcaseClient({ params }: { params: ShowcaseParams }) {
   }
 
   // own ต้องครบ 2 เม็ดหรือไม่มีเลย — แตะเม็ดแรกตอนว่าง = ตั้งทั้งสองเป็นพลอยนั้น
-  function pickTop(code: GemQuizStoneCode) {
+  function pickTop(code: SlotCode) {
     setUndoSnap(null);
     setOwnByCount((p) => ({ ...p, 2: p[2] ? [code, p[2][1]] : [code, code] }));
   }
-  function pickBottom(code: GemQuizStoneCode) {
+  function pickBottom(code: SlotCode) {
     setUndoSnap(null);
     setOwnByCount((p) => ({ ...p, 2: p[2] ? [p[2][0], code] : [code, code] }));
   }
@@ -231,7 +234,7 @@ export function RingShowcaseClient({ params }: { params: ShowcaseParams }) {
               slots={choice.kind === "ownSlots" ? choice.codes : null}
               ariaLabel={stageAria}
               photo={photos[0]}
-              photoAlt={photos.length > 0 ? photoAlt(design.name, 0, photos.length) : design.name}
+              photoAlt={photos.length > 0 ? photoAlt(design.name, 0, photos.length, photoViews) : design.name}
             />
           </div>
         </div>
@@ -264,6 +267,7 @@ export function RingShowcaseClient({ params }: { params: ShowcaseParams }) {
               own={own}
               onPickTop={pickTop}
               onPickBottom={pickBottom}
+              bypassActions={isRow ? undefined : { onResetCz: resetAllCz, onUndo: undoFill, canUndo: undoSnap !== null && undoSnap.count === ownCount }}
               perGem={
                 isRow
                   ? {
@@ -288,7 +292,7 @@ export function RingShowcaseClient({ params }: { params: ShowcaseParams }) {
         </div>
 
         <div className="min-w-0 lg:col-span-2 lg:row-start-5">
-          <PhotoGallery photos={photos} designName={design.name} />
+          <PhotoGallery photos={photos} designName={design.name} views={photoViews} />
         </div>
 
         <div className="flex min-w-0 flex-col gap-4 lg:col-start-2 lg:row-start-4">
