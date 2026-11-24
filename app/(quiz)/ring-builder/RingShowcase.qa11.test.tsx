@@ -6,6 +6,7 @@ import userEvent from "@testing-library/user-event";
 import "@testing-library/jest-dom/vitest";
 import { GEM_QUIZ_STONES } from "@/lib/gem-quiz/config";
 import { EMPTY_SHOWCASE_PARAMS, parseTableParam, readShowcaseParams, type IntentionTable, type ShowcaseParams } from "@/lib/ring-builder/showcase/quiz-link";
+import { formatPriceThb, showcasePriceThb } from "@/lib/ring-builder/showcase/config";
 import RingShowcasePage from "./page";
 import { RingShowcaseClient } from "./RingShowcaseClient";
 
@@ -50,7 +51,7 @@ describe("page: param ผสมกัน → ไม่ throw · ไม่มี�
     expect(html).not.toContain("<b>x</b>");
     expect(container.textContent).not.toMatch(/undefined|NaN|\[object|เพชร/);
     const msg = lineMessage();
-    expect(msg).toContain("ราคา 890 บาท");
+    expect(msg).toContain(`ราคา ${formatPriceThb("bypass2")}`);
     expect(msg).not.toContain("xxxxxxxx");
     expect(window.location.search).not.toContain("xxxxxxxx");
     expect(window.location.search).not.toMatch(/price|size|src|%3C|<|😀|คำไทย/);
@@ -121,14 +122,14 @@ describe("state ข้ามโหมด", () => {
     await u.click(screen.getByRole("radio", { name: "ความรัก & เสน่ห์" }));
     expect(window.location.search).toContain("d=2");
   });
-  it("ราคา 890 ทุกสถานะของ 25 คู่ × 2 โหมด (LINE + หน้าจอ) และไม่มีราคาอื่นบนจอ", async () => {
+  it("ราคาของแบบทุกสถานะของ 25 คู่ × 2 โหมด (LINE + หน้าจอ) และไม่มีราคาอื่นบนจอ", async () => {
     const u = userEvent.setup();
     const { container } = render(<RingShowcaseClient params={EMPTY_SHOWCASE_PARAMS} />);
     await u.click(modeRadio("เลือกพลอยเอง"));
     for (const a of GEM_QUIZ_STONES) {
       await u.click(gemRow("พลอยหลัก (เม็ดบน)").getByRole("radio", { name: a.labelTh }));
-      expect(lineMessage()).toContain("ราคา 890 บาท");
-      expect([...(container.textContent ?? "").matchAll(/(\d[\d,]*)\s*บาท/g)].map((m) => m[1]).every((p) => p === "890")).toBe(true);
+      expect(lineMessage()).toContain(`ราคา ${formatPriceThb("bypass2")}`);
+      expect([...(container.textContent ?? "").matchAll(/(\d[\d,]*)\s*บาท/g)].map((m) => m[1]).every((p) => p === String(showcasePriceThb("bypass2")))).toBe(true);
     }
   });
 });

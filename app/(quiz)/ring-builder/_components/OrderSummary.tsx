@@ -72,7 +72,7 @@ export function OrderSummary({
     ...gemRows,
     ...(design.extraCz > 0 ? ([[SHOWCASE_COPY.summaryExtraCz, SHOWCASE_COPY.extraCzCount(design.extraCz)]] as [string, string][]) : []),
     [SHOWCASE_COPY.summarySize, size === null ? SHOWCASE_COPY.sizePending : SHOWCASE_COPY.sizeUnit(size)],
-    [SHOWCASE_COPY.summaryPrice, formatPriceThb()],
+    [SHOWCASE_COPY.summaryPrice, formatPriceThb(design.id)],
   ];
 
   return (

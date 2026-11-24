@@ -15,6 +15,7 @@ vi.mock("./_assets", async (orig) => {
   const m = await orig<typeof import("./_assets")>();
   return { ...m, SHOWCASE_PHOTOS: { ...m.SHOWCASE_PHOTOS, trinity: [], scroll6: [], channel4: [], channel6: [], bar7: [], small7: [] } };
 });
+import { formatPriceThb } from "@/lib/ring-builder/showcase/config";
 import { RingShowcaseClient } from "./RingShowcaseClient";
 
 afterEach(cleanup);
@@ -66,17 +67,17 @@ describe("Case 2: size 52 survives bypass detour; reload keeps stones and design
       return decodeURIComponent(href.slice(href.indexOf("/?") + 2));
     };
     expect(lineMsg()).toContain("เบอร์ 52");
-    await u.click(screen.getByRole("radio", { name: getShowcaseDesign("bypass2").name }));
+    await u.click(screen.getByRole("radio", { name: `${getShowcaseDesign("bypass2").name} ${formatPriceThb("bypass2")}` }));
     expect(lineMsg()).not.toContain("52");
     expect(lineMsg()).toContain("รอแอดมินช่วยเช็ก");
     expect(document.body.textContent).toMatch(/ไซซ์ 52 ใช้กับแบบนี้ไม่ได้/);
-    await u.click(screen.getByRole("radio", { name: getShowcaseDesign("trinity").name }));
+    await u.click(screen.getByRole("radio", { name: `${getShowcaseDesign("trinity").name} ${formatPriceThb("trinity")}` }));
     expect(lineMsg()).toContain("เบอร์ 52");
   });
   it("URL after choosing a design + reload (parse back) keeps ring and own stones", async () => {
     const u = userEvent.setup();
     const { unmount } = render(<RingShowcaseClient params={{ ...EMPTY_SHOWCASE_PARAMS, table: TABLE, intention: "love", answered: "love" }} />);
-    await u.click(screen.getByRole("radio", { name: getShowcaseDesign("channel4").name }));
+    await u.click(screen.getByRole("radio", { name: `${getShowcaseDesign("channel4").name} ${formatPriceThb("channel4")}` }));
     const url = new URL(window.location.href);
     expect(url.searchParams.get("r")).toBe("channel4");
     expect(url.searchParams.get("t")).toBe("gac.acp.cpb.bgc.pab.gpa");
@@ -88,6 +89,6 @@ describe("Case 2: size 52 survives bypass detour; reload keeps stones and design
     expect(params.intention).toBe("love");
     expect(params.answered).toBe("love");
     render(<RingShowcaseClient params={params} />);
-    expect(screen.getByRole("radio", { name: getShowcaseDesign("channel4").name })).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByRole("radio", { name: `${getShowcaseDesign("channel4").name} ${formatPriceThb("channel4")}` })).toHaveAttribute("aria-checked", "true");
   });
 });

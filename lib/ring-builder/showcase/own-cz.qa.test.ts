@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vitest";
 import type { GemQuizStoneCode } from "@/lib/gem-quiz/config";
 import { slotTints } from "../viewer/gem-colors";
-import { SHOWCASE_PRICE_THB } from "./config";
+import { showcasePriceThb } from "./config";
 import { DESIGNS, ownSlotCount } from "./designs";
 import { buildShowcaseLineHref, buildShowcaseLineMessage } from "./line-message";
 import { fillAll, fitOwnToCount } from "./own-slots";
@@ -67,8 +67,8 @@ describe("QA: LINE เมทริกซ์ 6 แบบแถว × (CZ ล้�
         it(`${d.id} · ${pname} · size ${size}`, () => {
           const msg = buildShowcaseLineMessage({ designId: d.id, choice: { kind: "ownSlots", codes }, size })!;
           expect(msg).toBeTruthy();
-          // ราคาตัวเดียว = 890
-          expect(msg.match(/\d[\d,]*\s*บาท/g)).toEqual([`${SHOWCASE_PRICE_THB.toLocaleString("en-US")} บาท`]);
+          // ราคาตัวเดียว = ราคาของแบบนั้น
+          expect(msg.match(/\d[\d,]*\s*บาท/g)).toEqual([`${showcasePriceThb(d.id).toLocaleString("en-US")} บาท`]);
           expect(msg).not.toMatch(/เพชร|พลอยหลัก|พลอยเสริม|diamond/i);
           const czs = codes.filter((c) => c === Z).length;
           if (czs === n) expect(msg).toContain(`เม็ด 1–${n}: CZ ขาวทุกเม็ด`);

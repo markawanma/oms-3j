@@ -6,7 +6,7 @@ import { ToolCard } from "./ToolCard";
 
 // ToolsHub — หน้ารวมเครื่องมือลูกค้า (server component · static) · ไม่มี async จึงไม่มี loading/error จริง
 //   empty = ไม่เคยวัดไซซ์ → ไม่มี chip · error (storage พัง) = เหมือน empty (เงียบ) · success = การ์ด 3 + (chip) + ปุ่ม LINE
-// ไม่มีรูปแหวน/3D/ราคาแยกชิ้น (โหลดเร็วใน LINE browser) · ราคาเดียวที่แสดงมาจาก formatPriceThb() ผ่าน config
+// ไม่มีรูปแหวน/3D/ราคาแยกชิ้น (โหลดเร็วใน LINE browser) · ไม่แสดงราคา (ราคาต่อแบบ อยู่ในหน้า /ring-builder)
 export function ToolsHub() {
   return (
     <div className="px-5 pb-10 pt-8 sm:px-8">

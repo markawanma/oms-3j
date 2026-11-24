@@ -6,6 +6,7 @@ import userEvent from "@testing-library/user-event";
 import "@testing-library/jest-dom/vitest";
 import { getShowcaseDesign, type ShowcaseDesignId } from "@/lib/ring-builder/showcase/designs";
 import { EMPTY_SHOWCASE_PARAMS, readShowcaseParams, type ShowcaseParams } from "@/lib/ring-builder/showcase/quiz-link";
+import { formatPriceThb, showcasePriceThb } from "@/lib/ring-builder/showcase/config";
 import { RingShowcaseClient } from "./RingShowcaseClient";
 
 afterEach(cleanup);
@@ -16,7 +17,7 @@ beforeEach(() => {
 });
 
 const modeRadio = (name: string) => screen.getByRole("radio", { name });
-const designRadio = (id: ShowcaseDesignId) => screen.getByRole("radio", { name: getShowcaseDesign(id).name });
+const designRadio = (id: ShowcaseDesignId) => screen.getByRole("radio", { name: `${getShowcaseDesign(id).name} ${formatPriceThb(id)}` });
 const slotBar = () => screen.getByRole("radiogroup", { name: "เลือกพลอยทีละเม็ด" });
 const slot = (n: number) => within(slotBar()).getByRole("radio", { name: new RegExp(`^เม็ดที่ ${n} `) });
 const gem = (n: number, name: string) => within(screen.getByRole("radiogroup", { name: `เลือกพลอยให้เม็ดที่ ${n}` })).getByRole("radio", { name });
@@ -119,7 +120,7 @@ describe("QA own-cz - UI", () => {
       expect(names[5]).toBe("CZ ขาว");
     }
   });
-  it("ไขว้: เลือก CZ บน/ล่าง · URL = รหัสเต็ม · LINE/สรุป ชัดเจน 890 ไม่มีเพชร · CZ ล้วนไม่มีการ์ดคำอธิบาย · รีเซ็ต + เลิกทำ", async () => {
+  it("ไขว้: เลือก CZ บน/ล่าง · URL = รหัสเต็ม · LINE/สรุป ชัดเจนราคาแบบไขว้ ไม่มีเพชร · CZ ล้วนไม่มีการ์ดคำอธิบาย · รีเซ็ต + เลิกทำ", async () => {
     const u = await openOwn("bypass2");
     const [topCz, bottomCz] = screen.getAllByRole("radio", { name: "CZ ขาว" });
     const [topGarnet, bottomGarnet] = screen.getAllByRole("radio", { name: "โกเมน" });
@@ -130,7 +131,7 @@ describe("QA own-cz - UI", () => {
     let msg = lineMessage();
     expect(msg).toContain("พลอยหลัก (เม็ดบน): โกเมน");
     expect(msg).toContain("พลอยเสริม (เม็ดล่าง): CZ ขาว");
-    expect(msg).toContain("890");
+    expect(msg).toContain(String(showcasePriceThb("bypass2")));
     expect(msg).not.toContain("เพชร");
     // โกเมน+CZ = คำอธิบายโกเมนตัวเดียว (ไม่ใช่ "ทั้งสองเม็ด")
     expect(screen.queryByText(/โกเมน ทุกเม็ด/)).toBeNull();

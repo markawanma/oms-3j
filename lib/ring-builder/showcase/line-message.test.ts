@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { GEM_QUIZ_STONE_CODES } from "@/lib/gem-quiz/config";
 import { lineOaMessageUrl } from "@/lib/shop/line";
-import { SHOWCASE_PRICE_THB } from "./config";
+import { showcasePriceThb } from "./config";
 import { DESIGNS, SHOWCASE_DESIGN_IDS, getShowcaseDesign, type ShowcaseDesignId } from "./designs";
 import { buildShowcaseLineHref, buildShowcaseLineMessage, isShowcaseSize, resolveChoice, type ShowcaseChoice } from "./line-message";
 
@@ -134,8 +134,8 @@ describe("ทุกแบบ × ทุก choice — ข้อความถู
           else expect(m).not.toContain("CZ เล็ก");
           if (d.layout.kind === "row") expect(m).not.toMatch(/เม็ดบน|เม็ดล่าง|พลอยบน|พลอยล่าง/);
           expect(m).not.toContain("ทั้ง 2 เม็ด");
-          // Z3: ราคาตัวเดียว = 890
-          expect([...m.matchAll(/(\d[\d,]*)\s*บาท/g)].map((x) => x[1])).toEqual([String(SHOWCASE_PRICE_THB)]);
+          // Z3-ใหม่: ราคาตัวเดียว = ราคาของแบบนั้น
+          expect([...m.matchAll(/(\d[\d,]*)\s*บาท/g)].map((x) => x[1])).toEqual([String(showcasePriceThb(d.id))]);
           // Y7: ชุด n ⇔ ชุดแนะนำเท่านั้น
           const isRec = (choice as { kind: string }).kind === "rec";
           expect(/ชุด \d/.test(m)).toBe(isRec);
@@ -157,7 +157,7 @@ describe("ทุกแบบ × ทุก choice — ข้อความถู
         for (const b of GEM_QUIZ_STONE_CODES) {
           for (const choice of [own(a, b), rec(2, a, b)]) {
             const m = buildShowcaseLineMessage({ designId: d.id, choice, size: d.sizes[1] }) as string;
-            expect([...m.matchAll(/(\d[\d,]*)\s*บาท/g)].map((x) => x[1])).toEqual([String(SHOWCASE_PRICE_THB)]);
+            expect([...m.matchAll(/(\d[\d,]*)\s*บาท/g)].map((x) => x[1])).toEqual([String(showcasePriceThb(d.id))]);
             n++;
           }
         }

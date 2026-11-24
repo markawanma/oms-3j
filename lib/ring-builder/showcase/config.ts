@@ -1,14 +1,29 @@
 // lib/ring-builder/showcase/config.ts — ค่าคงที่ของหน้า "แบบของ 3J Jewelry" (D1 demo · D1.2 หลายแบบ · pure · import ได้แค่ designs.ts ที่ pure เหมือนกัน)
 // แหล่งเดียวของ: ราคา · ระยะ pre-order · ข้อความหน้าจอ · ชื่อ query key — ชื่อแบบ/ไซซ์/ตำแหน่งพลอยอยู่ designs.ts
-// 🔴 ค่าจากเจ้าของ: ราคา 890 บาทตายตัวทุกแบบ (เจ้าของเปลี่ยน 18 พ.ย. 69 จาก 800) · pre-order ทำภายใน 21 วัน · พลอยไข่ 7×5 มม. (ไขว้ — อยู่ใน bypass-ring.ts)
+// 🔴 ค่าจากเจ้าของ: ราคา "ต่อแบบ" — 7 แบบ 890 บาท (เจ้าของเปลี่ยน 18 พ.ย. 69 จาก 800) · แบบเม็ดเดี่ยว 790 บาท (เจ้าของ 24 พ.ย. 69) · pre-order ทำภายใน 21 วัน · พลอยไข่ 7×5 มม. (ไขว้ — อยู่ใน bypass-ring.ts)
 //    ค่าอื่นที่ไม่มีในเอกสาร = ห้ามแต่ง → TODO_OWNER_* (ดู designs.ts: ชื่อแบบ · ก้นหอย 6 เม็ดกลาง · CZ เล็กของแบบแถว · ไซซ์แบบใหม่ · รูปถ่ายจริง)
 // 🔴 D1.2 (18 พ.ย. 69 · design-ring-showcase-multi.md §0): เดิม "แบบเดียว (X4) — แบบอื่นห้ามอยู่ใน config/bundle" → ตอนนี้ 7 แบบ แต่ builder แบบแถว
-//    (viewer/row-ring.ts) อยู่ใน chunk lazy ของ RingViewer เท่านั้น ไม่เข้า first-load (Z9) · ไม่มีราคา/ไซซ์ต่อแบบใน config นี้
+//    (viewer/row-ring.ts) อยู่ใน chunk lazy ของ RingViewer เท่านั้น ไม่เข้า first-load (Z9)
+// 🔴 D1.3 (24 พ.ย. 69 · §15): ราคาต่อแบบอยู่ SHOWCASE_PRICE_THB_BY_DESIGN ที่นี่ที่เดียว · ไม่มีคำว่า "ทุกแบบ" ผูกกับราคา · hub ไม่แสดงราคา
 // 🔴 config ในโค้ด: แก้ราคา/ไซซ์/รูป ต้อง deploy ใหม่ · D2 จะย้ายไป rb_* (ดู design-ring-showcase-demo.md §2)
-import { DESIGNS } from "./designs";
+import { DESIGNS, type ShowcaseDesignId } from "./designs";
 
-/** ราคาเหมาตายตัวต่อวง (บาท) — ค่าเดียวของทั้งหน้า · ทุกแบบ · ไม่คิดค่าพลอยเพิ่ม */
-export const SHOWCASE_PRICE_THB = 890;
+/** ราคาเหมาต่อวง (บาท) ต่อแบบ — Record บังคับครบทุก id ตอน compile (เพิ่มแบบใหม่แล้วลืมราคา = build ไม่ผ่าน) · ไม่คิดค่าพลอยเพิ่ม */
+export const SHOWCASE_PRICE_THB_BY_DESIGN: Readonly<Record<ShowcaseDesignId, number>> = {
+  bypass2: 890,
+  trinity: 890,
+  scroll6: 890,
+  channel4: 890,
+  channel6: 890,
+  bar7: 890,
+  small7: 890,
+};
+
+/** ราคาของแบบ — id นอก whitelist = throw (ผู้เรียกส่ง id ที่ผ่านด่านแล้วเสมอ · ห้ามมี fallback ราคา) */
+export function showcasePriceThb(id: ShowcaseDesignId): number {
+  if (!Object.prototype.hasOwnProperty.call(SHOWCASE_PRICE_THB_BY_DESIGN, id)) throw new Error(`config: ไม่มีราคาของแบบ "${String(id)}"`);
+  return SHOWCASE_PRICE_THB_BY_DESIGN[id];
+}
 
 /** pre-order: ทำภายในกี่วัน (TODO_OWNER_LEAD_DAYS: 21 วันใช้กับแบบแถวใหม่เหมือนกันไหม — ตั้งไว้เท่ากันทุกแบบก่อน) */
 export const SHOWCASE_LEAD_DAYS = 21;
@@ -31,9 +46,9 @@ export const SHOWCASE_PATH = "/ring-builder";
 export const GEM_QUIZ_PATH = "/gem-quiz";
 export const RING_SIZE_PATH = "/ring-size";
 
-/** "890 บาท" — ทุกที่ที่แสดงราคาต้องผ่านฟังก์ชันนี้ (ห้ามพิมพ์ตัวเลขราคาในคอมโพเนนต์) */
-export function formatPriceThb(): string {
-  return `${SHOWCASE_PRICE_THB.toLocaleString("en-US")} บาท`;
+/** "790 บาท" — ทุกที่ที่แสดงราคาต้องผ่านฟังก์ชันนี้ (ห้ามพิมพ์ตัวเลขราคาในคอมโพเนนต์) · arg บังคับ ไม่มี default */
+export function formatPriceThb(id: ShowcaseDesignId): string {
+  return `${showcasePriceThb(id).toLocaleString("en-US")} บาท`;
 }
 
 export function leadTimeLabel(): string {
@@ -52,7 +67,6 @@ export const SHOWCASE_COPY = {
   pageDescription: `ลองพลอยจากแบบทดสอบของคุณบนแหวน ${DESIGNS.length} แบบ เลือกไซซ์ แล้วส่งให้แอดมินยืนยันทาง LINE`,
   // h1 คงที่ของหน้า (ชื่อแบบอยู่ในตัวเลือกแล้ว) — UX §12 ข้อ 8 รอเจ้าของยืนยันถ้อยคำ
   h1: "แหวนพลอยของ 3J Jewelry",
-  priceAllDesigns: (price: string) => `${price} ทุกแบบ`,
   stageLabel: "ภาพแหวน",
   badge: "ภาพจำลอง",
   dragHint: "ลากเพื่อหมุน",
@@ -69,7 +83,7 @@ export const SHOWCASE_COPY = {
   // เลือกแบบแหวน
   designHeading: "เลือกแบบแหวน",
   designHint: (count: number) => `ปัดดูทั้ง ${count} แบบ`,
-  designAnnounce: (name: string) => `เลือกแบบ ${name} แล้ว`,
+  designAnnounce: (name: string, price: string) => `เลือกแบบ ${name} แล้ว · ${price}`,
   designAnnounceSizeOut: (size: number) => ` · ไซซ์ ${size} ที่เลือกไว้ใช้กับแบบนี้ไม่ได้`,
   pickerHeading: "พลอยที่คุณเลือกได้",
   // ป้ายการ์ด (Y6): คำนวณจาก "ที่มา" — "จากแบบทดสอบ" ใช้ได้เฉพาะเมื่อผลมาจาก quiz จริง (เรื่องที่ตอบ หรือลิงก์ g เดิม)

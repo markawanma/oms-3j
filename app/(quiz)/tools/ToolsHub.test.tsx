@@ -7,7 +7,7 @@ import { cleanup, render, screen, waitFor, within } from "@testing-library/react
 import "@testing-library/jest-dom/vitest";
 import type { LastMeasuredSize } from "@/lib/ring-builder/last-size";
 import { LINE_OA_URL } from "@/lib/shop/line";
-import { formatPriceThb, leadTimeLabel } from "@/lib/ring-builder/showcase/config";
+import { leadTimeLabel } from "@/lib/ring-builder/showcase/config";
 import { DESIGNS } from "@/lib/ring-builder/showcase/designs";
 import { HUB_TOOLS, TOOLS_HUB_COPY } from "@/lib/tools-hub/config";
 import ToolsHubPage, { metadata } from "./page";
@@ -48,9 +48,9 @@ describe("ToolsHub — success (ไม่เคยวัดไซซ์)", () =>
     expect(HUB_TOOLS.find((t) => t.id === "ring-builder")?.description).toContain(`${DESIGNS.length} แบบ`);
   });
 
-  it("ราคา/ระยะเวลามาจากฟังก์ชันเดิม (ไม่พิมพ์เลขเอง)", () => {
+  it("ระยะเวลามาจากฟังก์ชันเดิม (ไม่พิมพ์เลขเอง) · hub ไม่แสดงราคา (ราคาต่อแบบ — มติ TL 24 พ.ย. 69)", () => {
     render(<ToolsHubPage />);
-    expect(screen.getByText(`${formatPriceThb()} · ${leadTimeLabel()}`)).toBeInTheDocument();
+    expect(screen.getByText(leadTimeLabel())).toBeInTheDocument();
   });
 
   it("ปุ่ม LINE ระดับรอง ใช้ LINE_OA_URL เดิม · ไม่มีลิงก์ภายนอกอื่น (TikTok/Shopee/โทร/อีเมล)", () => {
@@ -60,13 +60,13 @@ describe("ToolsHub — success (ไม่เคยวัดไซซ์)", () =>
     expect(hrefs.filter((h) => h && !h.startsWith("/"))).toEqual([LINE_OA_URL]);
   });
 
-  it("copy ไม่มีคำต้องห้าม · ไม่มีราคาอื่นนอกจากราคาที่ formatPriceThb ให้", () => {
+  it("copy ไม่มีคำต้องห้าม · ไม่มีราคาแหวนบน hub เลย (เหลือแค่ 10 บาทของเหรียญ)", () => {
     const { container } = render(<ToolsHubPage />);
     const text = container.textContent ?? "";
     for (const bad of ["ใช้ฟรี", "ไม่ต้องสมัคร", "เพชร", "TikTok", "Shopee", "ติ๊กต๊อก", "ช้อปปี้", "TODO_OWNER"]) expect(text).not.toContain(bad);
     const prices = text.match(/[0-9][0-9,]*\s*บาท/g) ?? [];
     // "10 บาท" มาจากเหรียญ 10 บาทในคำอธิบายวัดไซซ์ (ประโยคเดิมของ /ring-size) ไม่ใช่ราคา
-    expect(prices.map((p) => p.replace(/\s/g, "")).sort()).toEqual(["10บาท", formatPriceThb().replace(/\s/g, "")].sort());
+    expect(prices.map((p) => p.replace(/\s/g, ""))).toEqual(["10บาท"]);
   });
 
   it("ไม่มี chip เมื่อไม่เคยวัด (ไม่มีข้อความ 'ยังไม่มีผล')", async () => {

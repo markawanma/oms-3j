@@ -8,6 +8,7 @@ import { GEM_QUIZ_DISCLAIMER, GEM_QUIZ_PAIRS } from "@/lib/gem-quiz/config";
 import { buildShowcaseSets } from "@/lib/ring-builder/showcase/sets";
 import { EMPTY_SHOWCASE_PARAMS, type GemTop3 } from "@/lib/ring-builder/showcase/quiz-link";
 import type { LastMeasuredSize } from "@/lib/ring-builder/last-size";
+import { formatPriceThb, showcasePriceThb } from "@/lib/ring-builder/showcase/config";
 import RingShowcasePage from "./page";
 import { RingShowcaseClient } from "./RingShowcaseClient";
 
@@ -38,10 +39,11 @@ function lineMessage(): string {
 }
 
 describe("เข้าตรง (ไม่มี g) — โหมด CZ ขาว", () => {
-  it("แสดง h1 + 890 บาททุกแบบ + การ์ดชวนทำ quiz แทนชุด 1/2/3 · ไม่มี radio ของพลอย", () => {
+  it("แสดง h1 + ราคาของแบบที่เลือก (ไม่มีคำว่า ทุกแบบ) + การ์ดชวนทำ quiz แทนชุด 1/2/3 · ไม่มี radio ของพลอย", () => {
     render(<RingShowcaseClient params={EMPTY_SHOWCASE_PARAMS} />);
     expect(screen.getByRole("heading", { level: 1, name: "แหวนพลอยของ 3J Jewelry" })).toBeInTheDocument();
-    expect(screen.getAllByText("890 บาท").length).toBeGreaterThan(0);
+    expect(screen.getAllByText(formatPriceThb("bypass2")).length).toBeGreaterThan(0);
+    expect(document.body.textContent).not.toMatch(/บาท\s*ทุกแบบ/);
     expect(screen.getByText(/พรีออเดอร์ ทำภายใน 21 วัน/)).toBeInTheDocument();
     const quiz = screen.getByRole("link", { name: "ทำแบบทดสอบ 1 นาที" });
     expect(quiz).toHaveAttribute("href", "/gem-quiz");
@@ -195,20 +197,20 @@ describe("เลือกไซซ์", () => {
 });
 
 describe("สรุป + ส่ง LINE + คัดลอก", () => {
-  it("การ์ดสรุป: แบบแหวน · พลอย · หลัก/เสริม · CZ เล็ก · ไซซ์ · 890 บาท · 'ยังไม่ใช่การสั่งซื้อ'", () => {
+  it("การ์ดสรุป: แบบแหวน · พลอย · หลัก/เสริม · CZ เล็ก · ไซซ์ · ราคา · 'ยังไม่ใช่การสั่งซื้อ'", () => {
     render(<RingShowcaseClient params={LEGACY} />);
     const summary = screen.getByRole("heading", { name: "สรุปที่เลือก" }).parentElement as HTMLElement;
     expect(within(summary).getByText("แหวนไขว้พลอยไข่ 2 เม็ด")).toBeInTheDocument();
     expect(within(summary).getByText("โกเมน")).toBeInTheDocument();
     expect(within(summary).getByText("ซิทริน")).toBeInTheDocument();
-    expect(within(summary).getByText("890 บาท")).toBeInTheDocument();
+    expect(within(summary).getByText(formatPriceThb("bypass2"))).toBeInTheDocument();
     expect(within(summary).getByText("ยังไม่ใช่การสั่งซื้อ — ส่งให้แอดมินยืนยันก่อน")).toBeInTheDocument();
   });
   it("ลิงก์ LINE เป็น <a> ปกติ (ไม่ใช่ window.open) จาก lineOaMessageUrl · ราคามีค่าเดียว", () => {
     render(<RingShowcaseClient params={LEGACY} />);
     const a = screen.getByRole("link", { name: /ส่งให้แอดมินทาง LINE/ });
     expect(a.getAttribute("href")).toMatch(/^https:\/\/line\.me\/R\/oaMessage\/%40/);
-    expect([...lineMessage().matchAll(/(\d[\d,]*)\s*บาท/g)].map((m) => m[1])).toEqual(["890"]);
+    expect([...lineMessage().matchAll(/(\d[\d,]*)\s*บาท/g)].map((m) => m[1])).toEqual([String(showcasePriceThb("bypass2"))]);
   });
   it("คัดลอกสำเร็จ → ปุ่ม 'คัดลอกแล้ว ✓' แล้วกลับเป็นเดิมหลัง 3 วิ", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });

@@ -164,7 +164,7 @@ export function RingShowcaseClient({ params }: { params: ShowcaseParams }) {
     setSelectedSlot((s) => Math.min(s, nextCount - 1));
     setUndoSnap(null);
     setAnnounce(
-      SHOWCASE_COPY.designAnnounce(nextDesign.name) +
+      SHOWCASE_COPY.designAnnounce(nextDesign.name, formatPriceThb(next)) +
         (sizeOut ? SHOWCASE_COPY.designAnnounceSizeOut(size) : "") +
         (fitted ? ` · ${SHOWCASE_COPY.ownFitAnnounce(nextCount)}` : "")
     );
@@ -245,7 +245,7 @@ export function RingShowcaseClient({ params }: { params: ShowcaseParams }) {
           <p className="pl-[0.4em] font-quiz-display text-[13px] font-semibold tracking-[0.4em] text-[var(--gq-burgundy-dark)]">3J · JEWELRY</p>
           <h1 className="mt-2 font-quiz-serif text-2xl font-semibold leading-snug text-[var(--gq-burgundy-dark)]">{SHOWCASE_COPY.h1}</h1>
           <p className="mt-1 text-base">
-            <span className="font-medium">{SHOWCASE_COPY.priceAllDesigns(formatPriceThb())}</span>
+            <span className="font-medium">{formatPriceThb(designId)}</span>
             <span className="text-[var(--gq-text-muted)]"> · {leadTimeLabel()}</span>
           </p>
         </header>

@@ -96,7 +96,7 @@ export function buildShowcaseLineMessage(input: ShowcaseLineInput): string | nul
     `พลอย: ${resolved.gemsLine}`,
     ...stoneLines,
     sizeLine,
-    `ราคา ${formatPriceThb()} (${leadTimeLabel()})`,
+    `ราคา ${formatPriceThb(design.id)} (${leadTimeLabel()})`,
     LINE_COPY.closing,
   ].join("\n");
 }

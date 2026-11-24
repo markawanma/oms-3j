@@ -10,6 +10,7 @@ import { DESIGNS, getShowcaseDesign, type ShowcaseDesignId } from "@/lib/ring-bu
 import { EMPTY_SHOWCASE_PARAMS } from "@/lib/ring-builder/showcase/quiz-link";
 import { SHOWCASE_PHOTOS } from "./_assets";
 import { photoAlt } from "./_components/PhotoGallery";
+import { formatPriceThb } from "@/lib/ring-builder/showcase/config";
 import { RingShowcaseClient } from "./RingShowcaseClient";
 
 afterEach(cleanup);
@@ -56,7 +57,7 @@ describe("รูปจริงต่อแบบ", () => {
     const u = userEvent.setup();
     const { container } = render(<RingShowcaseClient params={EMPTY_SHOWCASE_PARAMS} />);
     for (const d of DESIGNS) {
-      await u.click(screen.getByRole("radio", { name: getShowcaseDesign(d.id).name }));
+      await u.click(screen.getByRole("radio", { name: `${getShowcaseDesign(d.id).name} ${formatPriceThb(d.id)}` }));
       const own = SHOWCASE_PHOTOS[d.id].map((p) => p.src);
       const others = DESIGNS.filter((x) => x.id !== d.id).flatMap((x) => SHOWCASE_PHOTOS[x.id].map((p) => p.src));
       const imgs = [...container.querySelectorAll("img")].map((i) => i.getAttribute("src") ?? "");

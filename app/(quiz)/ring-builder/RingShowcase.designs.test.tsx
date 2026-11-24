@@ -16,6 +16,7 @@ vi.mock("./_assets", async (orig) => {
   const m = await orig<typeof import("./_assets")>();
   return { ...m, SHOWCASE_PHOTOS: { ...m.SHOWCASE_PHOTOS, trinity: [], scroll6: [], channel4: [], channel6: [], bar7: [], small7: [] } };
 });
+import { showcasePriceThb, formatPriceThb } from "@/lib/ring-builder/showcase/config";
 import { RingShowcaseClient } from "./RingShowcaseClient";
 
 const lastSizeMock = vi.hoisted(() => ({ read: vi.fn<() => LastMeasuredSize | null>(() => null) }));
@@ -44,7 +45,7 @@ function lineMessage(): string {
   const href = lineHref();
   return decodeURIComponent(href.slice(href.indexOf("/?") + 2));
 }
-const designRadio = (id: ShowcaseDesignId) => screen.getByRole("radio", { name: getShowcaseDesign(id).name });
+const designRadio = (id: ShowcaseDesignId) => screen.getByRole("radio", { name: `${getShowcaseDesign(id).name} ${formatPriceThb(id)}` });
 const designGroup = () => screen.getByRole("radiogroup", { name: "เลือกแบบแหวน" });
 const sizeGroup = () => screen.getByRole("radiogroup", { name: /^เลือกไซซ์/ });
 const modeRadio = (name: string) => screen.getByRole("radio", { name });
@@ -54,7 +55,9 @@ describe("DesignPicker", () => {
     render(<RingShowcaseClient params={EMPTY_SHOWCASE_PARAMS} />);
     const radios = within(designGroup()).getAllByRole("radio");
     expect(radios).toHaveLength(7);
-    expect(radios.map((r) => r.getAttribute("aria-label"))).toEqual(DESIGNS.map((d) => d.name));
+    expect(radios.map((r) => r.getAttribute("aria-label"))).toEqual(DESIGNS.map((d) => `${d.name} ${formatPriceThb(d.id)}`));
+    // D1.3: การ์ดแสดงราคาของแบบตัวเองทุกใบ
+    expect(radios.map((r) => /(\d[\d,]*\s*บาท)/.exec(r.textContent ?? "")?.[1])).toEqual(DESIGNS.map((d) => formatPriceThb(d.id)));
     expect(radios.map((r) => r.getAttribute("aria-checked"))).toEqual(["true", "false", "false", "false", "false", "false", "false"]);
     expect(radios.map((r) => r.getAttribute("tabindex"))).toEqual(["0", "-1", "-1", "-1", "-1", "-1", "-1"]);
     expect(screen.getByText("ปัดดูทั้ง 7 แบบ")).toBeInTheDocument();
@@ -82,7 +85,7 @@ describe("DesignPicker", () => {
     const u = user();
     render(<RingShowcaseClient params={EMPTY_SHOWCASE_PARAMS} />);
     await u.click(designRadio("channel4"));
-    expect(screen.getAllByRole("status").some((el) => el.textContent === "เลือกแบบ แหวนฝังล็อค 4 เม็ด แล้ว")).toBe(true);
+    expect(screen.getAllByRole("status").some((el) => el.textContent === `เลือกแบบ แหวนฝังล็อค 4 เม็ด แล้ว · ${formatPriceThb("channel4")}`)).toBe(true);
   });
   it("r ใน URL → เปิดที่แบบนั้น (ไซซ์ 50–60 ครบ 11 ปุ่ม) · r ผิด/ไม่มี = ไขว้ (55–58)", () => {
     const { unmount } = render(<RingShowcaseClient params={{ ...EMPTY_SHOWCASE_PARAMS, ring: "small7" }} />);
@@ -211,7 +214,7 @@ describe("Z2 — ไซซ์ข้ามแบบ (effectiveSize)", () => {
 });
 
 describe("ทุกแบบ × ทุกโหมด — Z3 Z4 Z10 (DOM จริง)", () => {
-  it("ราคา 890 ค่าเดียวทั้งจอและ LINE · ไม่มีคำว่าเพชร · ลิงก์ออกได้แค่ LINE/ring-size/gem-quiz", async () => {
+  it("ราคาของแบบที่เลือกค่าเดียวทั้งจอ (นอกการ์ดเลือกแบบ) และ LINE · ไม่มีคำว่าเพชร · ลิงก์ออกได้แค่ LINE/ring-size/gem-quiz", async () => {
     const u = user();
     const { container } = render(<RingShowcaseClient params={QUIZ} />);
     for (const d of DESIGNS) {
@@ -219,8 +222,15 @@ describe("ทุกแบบ × ทุกโหมด — Z3 Z4 Z10 (DOM จร�
       for (const mode of ["แบบแนะนำ", "เลือกพลอยเอง"]) {
         await u.click(modeRadio(mode));
         const text = container.textContent ?? "";
-        expect([...text.matchAll(/(\d[\d,]*)\s*บาท/g)].map((m) => m[1]).every((p) => p === "890")).toBe(true);
-        expect([...lineMessage().matchAll(/(\d[\d,]*)\s*บาท/g)].map((m) => m[1])).toEqual(["890"]);
+        // Z3-ใหม่: การ์ดเลือกแบบแสดงราคาของทุกแบบ (ตั้งใจ) — ตัดออกก่อน แล้วที่เหลือ (หัวหน้า + สรุป) ต้องเป็นราคาของแบบที่เลือกค่าเดียว
+        const pickerText = designRadio(d.id).closest('[role="radiogroup"]')?.textContent ?? "";
+        const rest = text.replace(pickerText, "");
+        const own = String(showcasePriceThb(d.id));
+        const restPrices = [...rest.matchAll(/(\d[\d,]*)\s*บาท/g)].map((m) => m[1]);
+        expect(restPrices.length).toBeGreaterThanOrEqual(2); // หัวหน้า + สรุป
+        expect(restPrices.every((p) => p === own)).toBe(true);
+        expect(rest).not.toMatch(/บาท\s*ทุกแบบ/);
+        expect([...lineMessage().matchAll(/(\d[\d,]*)\s*บาท/g)].map((m) => m[1])).toEqual([own]);
         expect(text).not.toMatch(/เพชร|undefined|NaN|\[object/);
         const hrefs = [...container.querySelectorAll("a[href]")].map((a) => a.getAttribute("href") ?? "");
         // P3: "/" = ลิงก์กลับหน้ารวมเครื่องมือ (ToolsHubLink) — ต้องมีตัวเดียวเท่านั้น (ไม่ใช่ prefix/origin อื่น)
