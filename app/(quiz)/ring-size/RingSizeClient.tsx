@@ -48,6 +48,7 @@ import { track, trackMeasured, type TrackSnapshot } from "@/lib/ring-size/track"
 import { RING_STAGE_RESULT, inAppBucket } from "@/lib/ring-size/track-schema";
 import { useVisualViewportZoomed } from "@/lib/ring-size/use-visual-viewport-scale";
 import { G3Sheet } from "./_components/G3Sheet";
+import { RsHubDirtyProvider } from "./_components/RsHeader";
 import { Calibrate } from "./_screens/Calibrate";
 import { G4 } from "./_screens/G4";
 import { R0 } from "./_screens/R0";
@@ -144,6 +145,38 @@ function methodForScreen(rs: ScreenId, result: ResultState | null, invalid: { me
     default:
       return null;
   }
+}
+
+/**
+ * มีค่าที่ปรับไว้และ "ยังไม่บันทึก" ไหม → กด "เครื่องมือ 3J" แล้วต้องถามก่อนออก (ux-tools-navigation §5 · N5/N6)
+ *  R2/R2Coin: ปรับวงเทียบแล้ว (drafts[kind] !== null) และยังไม่ตรงกับค่าเทียบที่กดยืนยันไว้ (กลับมาจาก R3 โดยไม่ได้ขยับ = ไม่ dirty)
+ *  R5A/R5B: ปรับค่าวัดแล้ว (measure[m] !== null) และยังไม่ใช่ค่าที่ให้ผลล่าสุดของวิธีนั้น
+ *  จออื่นทั้งหมด (R0 · R1Pick · R1 · R3 · R4A/B · G4 · R6) ไม่มีค่าค้าง → false
+ * ใช้ state ที่มีอยู่แล้ว ไม่เพิ่ม state ใหม่
+ */
+function isHubDirty(
+  screen: ScreenId,
+  s: {
+    drafts: { card: number | null; coin: number | null };
+    measure: { A: number | null; B: number | null };
+    calib: Calibration | null;
+    result: ResultState | null;
+  },
+): boolean {
+  if (screen === "R2" || screen === "R2Coin") {
+    const kind: RefKind = screen === "R2Coin" ? "coin" : "card";
+    const draft = s.drafts[kind];
+    if (draft === null) return false;
+    return !(s.calib !== null && s.calib.ref === kind && s.calib.pxPerMm === draft);
+  }
+  if (screen === "R5A" || screen === "R5B") {
+    const m: Method = screen === "R5A" ? "A" : "B";
+    const mm = s.measure[m];
+    if (mm === null) return false;
+    const rec = circToRec(m === "A" ? diameterToCirc(mm) : mm, m);
+    return !(s.result !== null && s.result.method === m && rec !== null && rec.circ === s.result.circ);
+  }
+  return false;
 }
 
 export function RingSizeClient() {
@@ -331,6 +364,7 @@ export function RingSizeClient() {
     if (scroller && typeof scroller.scrollTo === "function") scroller.scrollTo(0, 0);
   }, [shown]);
 
+  const hubDirty = isHubDirty(shown, { drafts, measure, calib, result });
   const counter = stepCounter(shown, skipped);
   const backCtx = { ref: calib?.ref ?? null, method, calibratedThisFlow: !skipped, resultFromHome };
   const back = (from: ScreenId) => goBack(backDestination(from, backCtx));
@@ -566,8 +600,10 @@ export function RingSizeClient() {
 
   return (
     <div ref={rootRef} tabIndex={-1} className="mx-auto flex min-h-full w-full max-w-[480px] flex-col outline-none">
-      {body}
-      {g3 ? <G3Sheet kind={g3.kind} onRetry={() => setG3(null)} onAccept={() => finishCalibration(g3.kind, g3.ppm)} /> : null}
+      <RsHubDirtyProvider value={hubDirty}>
+        {body}
+        {g3 ? <G3Sheet kind={g3.kind} onRetry={() => setG3(null)} onAccept={() => finishCalibration(g3.kind, g3.ppm)} /> : null}
+      </RsHubDirtyProvider>
     </div>
   );
 }

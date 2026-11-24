@@ -14,8 +14,10 @@ import {
 } from "@/lib/ring-size/config";
 import { formatMm, inShopRange, type SizeRec } from "@/lib/ring-size/size";
 import { trackCta } from "@/lib/ring-size/track";
+import { SHOWCASE_PATH } from "@/lib/ring-builder/showcase/config";
 import { GemIcon, ShareIcon } from "../_components/Icons";
 import { LineCta } from "../_components/LineCta";
+import { ToolsHubLink } from "../../_components/ToolsHubLink";
 import { RsButton } from "../_components/RsButton";
 import { RsHeader } from "../_components/RsHeader";
 import { ShareCardSheet } from "../_components/ShareCardSheet";
@@ -51,7 +53,7 @@ export function R6({ step, size, method, refKind, measuredAt, onBack, onRemeasur
 
   return (
     <div className="flex flex-1 flex-col">
-      <RsHeader step={step} onBack={onBack} hubLink />
+      <RsHeader step={step} onBack={onBack} />
       <div className="flex flex-col gap-3.5 px-[22px] pb-7 pt-1">
         <section aria-label={COPY.r6.label} className={`${CARD} relative overflow-hidden rounded-[28px] px-5 pb-[22px] pt-[26px] text-center`}>
           <svg aria-hidden="true" width="260" height="260" viewBox="0 0 260 260" fill="none" className="pointer-events-none absolute left-1/2 top-2 -ml-[130px] opacity-55">
@@ -122,6 +124,22 @@ export function R6({ step, size, method, refKind, measuredAt, onBack, onRemeasur
 
         <LineCta input={{ size, method, ref: refKind }} label={variant === "out" ? COPY.r6.ctaLineOut(size.rec) : COPY.r6.ctaLine} stickyPrimary={variant === "between"} />
 
+        {/* บล็อก "ไปต่อ" (ux-tools-navigation §6): ดูแหวน → แบบทดสอบพลอย */}
+        <div className="flex flex-col gap-2.5">
+          {/* ไปหน้าแหวนด้วย /ring-builder เปล่าๆ — ห้ามแนบเบอร์/ค่าวัด/พารามิเตอร์ใด (หน้าแหวนอ่านผลวัดล่าสุดจาก localStorage เองแล้วเสนอ "ใช้เบอร์ N")
+              ห้ามยิง trackCta (ค่า cta ถูก allowlist ที่ track-schema + DB 0193 — ไม่เพิ่มค่าใหม่) · เบอร์นอกช่วงร้าน (variant out) ไม่แสดง */}
+          {variant !== "out" ? (
+            <RsButton variant="secondary" href={SHOWCASE_PATH}>
+              {COPY.r6.viewRing(size.rec)}
+            </RsButton>
+          ) : null}
+          {/* /gem-quiz ตรงๆ เท่านั้น — ห้ามแนบเบอร์/พารามิเตอร์ใดไปกับ URL */}
+          <RsButton variant="secondary" href="/gem-quiz" onClick={() => trackCta("gem_quiz")} icon={<GemIcon />}>
+            {COPY.r6.gemQuiz}
+          </RsButton>
+        </div>
+
+        {/* บล็อกรอง: แชร์ · ลิงก์ร้าน (เจ้าของเก็บทั้งคู่ — มติ 24 พ.ย. 69 Q4) */}
         <div className="flex flex-col gap-2.5">
           <RsButton
             variant="secondary"
@@ -138,10 +156,6 @@ export function R6({ step, size, method, refKind, measuredAt, onBack, onRemeasur
               {shop.label}
             </RsButton>
           ) : null}
-          {/* /gem-quiz ตรงๆ เท่านั้น — ห้ามแนบเบอร์/พารามิเตอร์ใดไปกับ URL */}
-          <RsButton variant="secondary" href="/gem-quiz" onClick={() => trackCta("gem_quiz")} icon={<GemIcon />}>
-            {COPY.r6.gemQuiz}
-          </RsButton>
         </div>
 
         <div className="flex justify-center gap-[18px] text-[15px]">
@@ -151,6 +165,11 @@ export function R6({ step, size, method, refKind, measuredAt, onBack, onRemeasur
           <button type="button" onClick={onOtherMethod} className={LINK}>
             {COPY.r6.otherMethod}
           </button>
+        </div>
+
+        {/* ท้ายหน้ายาว — อ่านจบแล้วไม่ต้องเลื่อนขึ้นไปหาปุ่มบน */}
+        <div className="flex justify-center">
+          <ToolsHubLink variant="back" />
         </div>
 
         <p className={`m-0 text-center text-[13px] leading-relaxed ${TEXT_2}`}>
