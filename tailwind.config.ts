@@ -72,11 +72,21 @@ const config: Config = {
         "gq-gem-in": { "0%": { opacity: "0", transform: "scale(0.85)" }, "100%": { opacity: "1", transform: "scale(1)" } },
         "gq-twinkle": { "0%, 100%": { opacity: "0.25" }, "50%": { opacity: "1" } },
         "gq-spin-rev": { "0%": { transform: "rotate(360deg)" }, "100%": { transform: "rotate(0deg)" } },
+        // จุดแนะนำให้ลากหมุนแหวน (RingStage): กดที่ซ้าย → ปัดไปขวา (ease-in-out) → ปล่อย · ตัวห่อ fade-out ท้ายรอบที่ 3
+        "gq-hint-swipe": {
+          "0%": { opacity: "0", transform: "translateX(-40px) scale(0.7)" },
+          "15%": { opacity: "1", transform: "translateX(-40px) scale(1)", animationTimingFunction: "ease-in-out" },
+          "75%": { opacity: "1", transform: "translateX(40px) scale(1)" },
+          "100%": { opacity: "0", transform: "translateX(40px) scale(0.7)" },
+        },
+        "gq-hint-life": { "0%, 85%": { opacity: "1" }, "100%": { opacity: "0" } },
       },
       animation: {
         "gq-fade-up": "gq-fade-up .45s ease-out both",
         "gq-gem-in": "gq-gem-in .5s ease-out both",
         "gq-twinkle": "gq-twinkle 1.8s ease-in-out infinite",
+        "gq-hint-swipe": "gq-hint-swipe 1.9s linear 3 both",
+        "gq-hint-life": "gq-hint-life 5.8s linear forwards",
         "gq-spin-slow": "spin 3.2s linear infinite",
         "gq-spin-slow-rev": "gq-spin-rev 4s linear infinite",
       },

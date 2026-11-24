@@ -59,8 +59,8 @@ describe("DesignPicker", () => {
     expect(radios.map((r) => r.getAttribute("aria-label"))).toEqual(DESIGNS.map((d) => `${d.name} ${formatPriceThb(d.id)}`));
     // D1.3: การ์ดแสดงราคาของแบบตัวเองทุกใบ
     expect(radios.map((r) => /(\d[\d,]*\s*บาท)/.exec(r.textContent ?? "")?.[1])).toEqual(DESIGNS.map((d) => formatPriceThb(d.id)));
-    expect(radios.map((r) => r.getAttribute("aria-checked"))).toEqual(["true", ...Array(7).fill("false")]);
-    expect(radios.map((r) => r.getAttribute("tabindex"))).toEqual(["0", ...Array(7).fill("-1")]);
+    expect(radios.map((r) => r.getAttribute("aria-checked"))).toEqual(["false", "true", ...Array(6).fill("false")]); // ค่าเริ่มต้น = ไขว้ (ใบที่ 2 หลังเรียงตามจำนวนเม็ด)
+    expect(radios.map((r) => r.getAttribute("tabindex"))).toEqual(["-1", "0", ...Array(6).fill("-1")]);
     expect(screen.getByText("ปัดดูทั้ง 8 แบบ")).toBeInTheDocument();
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("แหวนพลอยของ 3J Jewelry");
   });

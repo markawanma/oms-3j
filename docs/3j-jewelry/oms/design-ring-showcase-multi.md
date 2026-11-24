@@ -280,9 +280,9 @@ RingShowcaseClient state: designId · intention · recIndex · own · active · 
 - `TODO_OWNER_DESIGN_NAME` ของแบบ 8 ยังค้าง (เหมือน 7 แบบเดิม) — QA จะรายงานตามกฎค่าภายนอก
 
 ### 15.10 คำถามเจ้าของ (ไม่บล็อกการเริ่มงาน — ใช้ค่าตั้งต้นในวงเล็บไปก่อน)
-1. ชื่อแบบ 8 สำหรับลูกค้า (`TODO_OWNER_DESIGN_NAME` · ชั่วคราว "แหวนเม็ดเดี่ยว 6 เตย")
+1. ~~ชื่อแบบ 8 สำหรับลูกค้า~~ → **เจ้าของตั้งแล้ว 24 พ.ย.: "เม็ดเดี่ยว (1 เม็ด)" — ดู §15.12**
 2. ~~หน้า hub เขียน "เริ่มต้น 790 บาท"~~ → **TL ตัดสินแล้ว: hub ไม่ใส่ราคา** (เจ้าของยังไม่ได้สั่งเพิ่ม)
-3. ลำดับ chip: เม็ดเดี่ยวไว้ใบสุดท้ายหรือใบแรก (ค่าตั้งต้น = **ใบที่ 8** · TL ยืนยัน · มือถือต้องปัดถึงจะเห็น)
+3. ลำดับ chip: เม็ดเดี่ยวไว้ใบสุดท้ายหรือใบแรก (ค่าตั้งต้นเดิม = ใบที่ 8) → **เจ้าของตอบแล้ว 24 พ.ย.: เรียงตามจำนวนเม็ด เม็ดเดี่ยวเป็นใบแรก — ดู §15.12**
 4. 790 รวมพลอยสีเหมือน 7 แบบไหม · พลอยกลมขนาดนี้มีครบ 5 ชนิด + CZ ขาวไหม (ค่าตั้งต้น: เลือกได้ 6 ตัวเลือกราคาเดียว)
 5. การ์ดเลือกแบบแสดงราคาทุกใบ — โอเคไหม (ค่าตั้งต้น: แสดง)
 
@@ -290,3 +290,15 @@ RingShowcaseClient state: designId · intention · recIndex · own · active · 
 - ทำตาม S0–S5 · commit แยกตาม S บน `feature/showcase-solitaire`
 - เบี่ยงจาก §15: (1) hub ไม่มีราคา + ไม่มี `minShowcasePriceThb` (มติ TL) (2) `SHOWCASE_PRICE_THB_BY_DESIGN` ใส่ solitaire ตอน S3 (S1 ยังไม่มีแบบ 8 ตามแผน) (3) `showcasePriceThb` ตรวจ id ด้วย `hasOwnProperty` (กัน `__proto__`/`constructor`) (4) copy ใหม่ที่ไม่อยู่ใน §15: `singleStoneEmptyHint` "แตะพลอยที่ชอบเพื่อดูบนแหวน" (ข้อความช่วยตอนยังไม่เลือก — เม็ดเดี่ยวใช้ `ownEmptyHintPerGem` ไม่ได้เพราะมี "ทุกเม็ด") (5) PlacementNote ของเม็ดเดี่ยวไม่ render ทั้งโหมดแนะนำและเลือกเอง
 - test เดิมที่แก้เกิน "890 → formatPriceThb": ลำดับ/จำนวนแบบ 7→8 · loop ที่ยืนยัน "พลอยหลัก/เสริม" ของแบบแถวหลายเม็ด กรอง `!isSingleStone` (เม็ดเดี่ยวมี test คำต้องห้ามของตัวเองใน `solitaire.test.ts` + `RingShowcase.solitaire.test.tsx`) · DOM ที่เคยเช็คราคา "ทั้งหน้า" ตัดการ์ดเลือกแบบออกก่อน (การ์ดแสดงราคาทุกแบบโดยตั้งใจ)
+
+### 15.12 มติเจ้าของหลัง UAT (24 พ.ย. 69 · คำต่อคำ: "เอาเม็ดเดียวขึ้นก่อนเป็นอันแรก เรียงตามจำนวนเม็ด ... ใช้ชื่อว่า เม็ดเดี่ยว (1 เม็ด)" · "ตรงรูปแหวน ... animation white dot เล็กๆ ขยับไปขยับมา ... ให้เลื่อนแหวนหมุนดูได้")
+ทับ §15.10 ข้อ 1 และ 3 · ทับ "ใบที่ 8" ใน §15 ทุกจุด
+1. **ลำดับการ์ด**: `DESIGNS` (designs.ts · แหล่งเดียว) เรียงตามจำนวนเม็ดที่ลูกค้าเห็นในชื่อ (`ownSlotCount`: ไขว้ = 2) น้อย→มาก เสถียร → `solitaire · bypass2 · trinity · channel4 · scroll6 · channel6 · bar7 · small7`
+   - 🔴 **แบบเริ่มต้นเมื่อไม่มี `r` ยังเป็นไขว้** (`DEFAULT_DESIGN_ID` ไม่ผูกกับ `DESIGNS[0]`) — ลิงก์ที่แจกแล้ว + ลิงก์จาก quiz ไม่เปลี่ยนผล · id `solitaire` ใน URL ไม่เปลี่ยน · มีแค่ลำดับการ์ดที่เปลี่ยน
+2. **ชื่อ**: `name` = `shortName` = "เม็ดเดี่ยว (1 เม็ด)" (ลบ `TODO_OWNER_DESIGN_NAME` ของแบบนี้ · อีก 7 แบบยังเป็นชื่อชั่วคราว) — ขึ้นการ์ด · สรุป · aria · LINE (ทุกจุดอ่านจาก `designs.ts`)
+3. **drag hint** (`RingStage.tsx` + keyframes `gq-hint-swipe`/`gq-hint-life` ใน `tailwind.config.ts`): จุดขาว 15px + เงาบาง · กลาง stage ค่อนล่าง (top 78%) · เลื่อน ±40px ease-in-out × 3 รอบ (1.9s/รอบ) แล้ว fade ใน 5.8s · CSS ล้วน ไม่เพิ่ม dependency · `pointer-events-none` + `aria-hidden`
+   - แสดงเมื่อ `mode === "ready"` และไม่ `designFailed` เท่านั้น (ไม่แสดงตอน loading/ไม่รองรับ 3D/context lost/fallback รูป)
+   - หายเมื่อ pointerdown/touchstart บน stage ครั้งแรก หรือ timer 6 วิ · state `hintDone` อยู่ที่ RingStage (ไม่ remount ตอนเปลี่ยนแบบ → แสดงครั้งเดียวต่อการโหลดหน้า) · ไม่ใช้ storage
+   - `prefers-reduced-motion: reduce` = **ไม่แสดงเลย** (จุดนิ่งไม่สื่อว่าลากได้ และดูเหมือนฝุ่นบนภาพ · ป้าย "ลากเพื่อหมุน" เดิมยังอยู่) — เช็คด้วย `matchMedia` ใน JS เพื่อให้ test ได้
+   - ไม่แตะ gl-renderer / row-ring / solitaire-ring
+4. test: `designs.test.ts` (ลำดับ · ชื่อ · default=ไขว้) · `RingShowcase.designs/solitaire*.test.tsx` (ลำดับการ์ด · checked เริ่มต้น = ใบที่ 2) · `line-message.test.ts` (ชื่อใหม่) · `RingShowcase.draghint.test.tsx` (hint ใหม่ทั้งชุด)

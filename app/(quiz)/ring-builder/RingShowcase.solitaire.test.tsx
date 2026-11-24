@@ -44,13 +44,17 @@ async function pickSolitaire(u: ReturnType<typeof user>, params: ShowcaseParams 
 }
 
 describe("การ์ดเลือกแบบ + ราคาต่อแบบ", () => {
-  it("chip ใบที่ 8 = เม็ดเดี่ยว 790 · ที่เหลือ 890 · aria-label = ชื่อ + ราคา", () => {
+  it("chip ใบแรก = เม็ดเดี่ยว 790 (เรียงตามจำนวนเม็ด) · ที่เหลือ 890 · aria-label = ชื่อ + ราคา", () => {
     render(<RingShowcaseClient params={EMPTY_SHOWCASE_PARAMS} />);
     const radios = within(designGroup()).getAllByRole("radio");
     expect(radios).toHaveLength(8);
-    expect(radios[7]).toHaveAccessibleName("แหวนเม็ดเดี่ยว 6 เตย 790 บาท");
-    expect(radios[7]).toHaveTextContent("790 บาท");
-    for (const r of radios.slice(0, 7)) expect(r).toHaveTextContent("890 บาท");
+    expect(radios[0]).toHaveAccessibleName("เม็ดเดี่ยว (1 เม็ด) 790 บาท");
+    expect(radios[0]).toHaveTextContent("790 บาท");
+    // ค่าเริ่มต้นเมื่อไม่มี r ยังเป็นไขว้ (ใบที่ 2 ในลำดับใหม่) — ลิงก์เดิมต้องไม่เปลี่ยนผล
+    expect(radios[0]).toHaveAttribute("aria-checked", "false");
+    expect(radios[1]).toHaveAttribute("aria-checked", "true");
+    expect(radios[1]).toHaveAccessibleName(/แหวนไขว้พลอยไข่ 2 เม็ด/);
+    for (const r of radios.slice(1)) expect(r).toHaveTextContent("890 บาท");
   });
   it("Z3-ใหม่ สลับแบบ: หัวหน้า + สรุป + href LINE เปลี่ยนตามราคาของแบบ · ไม่มีราคาอื่นนอกการ์ดเลือกแบบ", async () => {
     const u = user();

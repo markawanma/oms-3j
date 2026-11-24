@@ -207,3 +207,11 @@ describe("buildShowcaseLineHref", () => {
     expect(src).not.toMatch(/line\.me|lin\.ee|@3j|3jjewelry/i);
   });
 });
+
+describe("ชื่อแบบเม็ดเดี่ยวที่เจ้าของตั้ง (24 พ.ย.) ในข้อความ LINE", () => {
+  it('บรรทัด "แบบแหวน:" = "เม็ดเดี่ยว (1 เม็ด)" · ไม่มีชื่อชั่วคราวเดิม', () => {
+    const m = buildShowcaseLineMessage({ designId: "solitaire", choice: { kind: "direct" }, size: 55 }) as string;
+    expect(m).toContain("แบบแหวน: เม็ดเดี่ยว (1 เม็ด)\n");
+    expect(m).not.toContain("6 เตย");
+  });
+});

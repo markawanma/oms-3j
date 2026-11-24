@@ -47,7 +47,7 @@ describe("QA DOM — ทุกแบบเริ่มจาก ?r=<id> (ลิ�
     const u = userEvent.setup();
     render(<RingShowcaseClient params={EMPTY_SHOWCASE_PARAMS} />);
     expect(new Set(prices(outsidePicker()))).toEqual(new Set(["890 บาท"]));
-    await u.click(screen.getByRole("radio", { name: /แหวนเม็ดเดี่ยว 6 เตย 790 บาท/ }));
+    await u.click(screen.getByRole("radio", { name: /เม็ดเดี่ยว \(1 เม็ด\) 790 บาท/ }));
     expect(new Set(prices(outsidePicker()))).toEqual(new Set(["790 บาท"]));
     expect(document.body.textContent).not.toMatch(/พลอยเสริม|ทุกเม็ด|ซ้ายไปขวา/);
     expect(TABLE).toBeTruthy();

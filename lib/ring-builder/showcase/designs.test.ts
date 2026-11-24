@@ -6,6 +6,7 @@ import { CZ_TINT, designTints, ringTints, stoneTint } from "../viewer/gem-colors
 import { ROW_PRESETS } from "../viewer/row-presets";
 import { SHOWCASE_RING_IDS, getShowcaseRing } from "../viewer/showcase-rings";
 import {
+  DEFAULT_DESIGN_ID,
   DESIGNS,
   SHOWCASE_DESIGN_IDS,
   findShowcaseDesign,
@@ -14,6 +15,7 @@ import {
   isShowcaseDesignId,
   isSingleStone,
   mainIndexes,
+  ownSlotCount,
   placementNote,
   roleMainLabel,
   roleSubLabel,
@@ -29,10 +31,16 @@ const table = (): IntentionTable => {
 };
 
 describe("designs.ts — ข้อมูลฝั่งลูกค้า", () => {
-  it("8 แบบ ลำดับตาม UX (ไขว้ · TRINITY · ก้นหอย · ฝังล็อค 4 · ฝังล็อค 6 · เตย · แถวเล็ก · เม็ดเดี่ยว) และตรงกับโมเดล 3D ทีละ id", () => {
-    expect(DESIGNS.map((d) => d.id)).toEqual(["bypass2", "trinity", "scroll6", "channel4", "channel6", "bar7", "small7", "solitaire"]);
-    expect([...SHOWCASE_DESIGN_IDS]).toEqual([...SHOWCASE_RING_IDS]);
-    expect(DESIGNS.map((d) => d.shortName)).toEqual(["ไขว้ 2 เม็ด", "TRINITY 3 เม็ด", "ก้นหอย 6 เม็ด", "ฝังล็อค 4 เม็ด", "ฝังล็อค 6 เม็ด", "เตย 7 เม็ด", "แถวเล็ก 7 เม็ด", "เม็ดเดี่ยว 6 เตย"]);
+  it("8 แบบ เรียงตามจำนวนเม็ดน้อย→มาก (เจ้าของสั่ง 24 พ.ย.) เท่ากันคงลำดับเดิม · ตรงกับโมเดล 3D ทีละ id", () => {
+    expect(DESIGNS.map((d) => d.id)).toEqual(["solitaire", "bypass2", "trinity", "channel4", "scroll6", "channel6", "bar7", "small7"]);
+    const counts = DESIGNS.map(ownSlotCount);
+    expect(counts).toEqual([...counts].sort((a, b) => a - b));
+    expect([...SHOWCASE_DESIGN_IDS].sort()).toEqual([...SHOWCASE_RING_IDS].sort());
+    expect(DESIGNS.map((d) => d.shortName)).toEqual(["เม็ดเดี่ยว (1 เม็ด)", "ไขว้ 2 เม็ด", "TRINITY 3 เม็ด", "ฝังล็อค 4 เม็ด", "ก้นหอย 6 เม็ด", "ฝังล็อค 6 เม็ด", "เตย 7 เม็ด", "แถวเล็ก 7 เม็ด"]);
+  });
+  it("แบบเริ่มต้นไม่ผูกกับลำดับการ์ด: DEFAULT_DESIGN_ID = ไขว้ แม้การ์ดใบแรกเป็นเม็ดเดี่ยว", () => {
+    expect(DESIGNS[0].id).toBe("solitaire");
+    expect(DEFAULT_DESIGN_ID).toBe("bypass2");
   });
   it("จำนวนเม็ด/เม็ดหลักตรงกับพารามิเตอร์ 3D และเรขาคณิตจริง (ไขว้ 4 เม็ดในโมเดล = พลอยไข่ 2 + CZ 2)", () => {
     for (const d of DESIGNS) {
@@ -106,7 +114,7 @@ describe("D1.3 — แบบที่ 8 เม็ดเดี่ยว", () => {
     expect(gemSlotCount(d)).toBe(1);
     expect(mainIndexes(1)).toEqual([0]);
     expect(DESIGNS.filter(isSingleStone).map((x) => x.id)).toEqual(["solitaire"]);
-    expect(d.name).toBe("แหวนเม็ดเดี่ยว 6 เตย"); // TODO_OWNER_DESIGN_NAME (ชั่วคราว)
+    expect(d.name).toBe("เม็ดเดี่ยว (1 เม็ด)"); // เจ้าของตั้งชื่อแล้ว 24 พ.ย.
   });
   it("designTints('solitaire') ยาว 1 · สลับแบบไปมา: tints ยาวเท่าเม็ดของแบบเสมอ", () => {
     expect(designTints("solitaire", "garnet", "citrine")).toHaveLength(1);

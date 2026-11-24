@@ -68,7 +68,7 @@ describe("รูปจริงต่อแบบ", () => {
       const gallery = screen.getByRole("region", { name: "ดูของจริง" });
       expect(within(gallery).getAllByRole("img")).toHaveLength(own.length);
       if (d.id !== "bypass2") {
-        for (const im of within(gallery).getAllByRole("img")) expect(im.getAttribute("alt")).toMatch(new RegExp(`^ภาพถ่ายจริง ${d.name} รูปที่ [0-9] จาก 4$`));
+        for (const im of within(gallery).getAllByRole("img")) expect(im.getAttribute("alt")).toBe(`ภาพถ่ายจริง ${d.name} รูปที่ ${Number(/รูปที่ (\d)/.exec(im.getAttribute("alt") ?? "")?.[1])} จาก 4`);
       }
     }
   });
