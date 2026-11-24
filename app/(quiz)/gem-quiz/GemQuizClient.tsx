@@ -328,6 +328,7 @@ export function GemQuizClient({ token }: { token: string | null }) {
     const cur = stackRef.current[idxRef.current] ?? screen;
     const next = SCREENS[Math.min(screenIndex(cur) + 1, SCREENS.length - 1)];
     if (next === cur) return; // กดรัวหลัง navigate — ไม่ push entry ซ้ำ
+    if (backPendingRef.current) return; // restart() กำลังรอ history.go(-i) — push ตอนนี้จะถูก popstate ดึงกลับ Landing
     navigate(next);
   }
 
@@ -404,8 +405,15 @@ export function GemQuizClient({ token }: { token: string | null }) {
     setScreen("landing");
     if (steps > 0) {
       try {
+        // กัน "เริ่ม" ที่กดเร็วกว่า popstate (push แล้วถูกดึงกลับ Landing) — onPop เคลียร์ · timer กันค้างถ้า popstate ไม่มา
+        backPendingRef.current = true;
+        if (backTimerRef.current) clearTimeout(backTimerRef.current);
+        backTimerRef.current = setTimeout(() => {
+          backPendingRef.current = false;
+        }, BACK_PENDING_MS);
         window.history.go(-steps);
       } catch {
+        backPendingRef.current = false;
         // ข้าม — จอเป็น Landing แล้ว
       }
     }

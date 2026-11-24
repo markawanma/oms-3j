@@ -12,8 +12,9 @@ import { HUB_URL } from "@/lib/site/hosts";
 // ไม่ใช้สีแดงเตือน (ไม่ได้ลบข้อมูลถาวรของลูกค้า — เริ่มใหม่ได้ใน < 1 นาที) · ไม่ใช้ beforeunload
 //
 // render ผ่าน portal ไป document.body: จอ quiz ห่อด้วย motion-safe:animate-gq-fade-up (fill-mode both ค้าง transform) และ <main> มี
-// overflow-hidden ที่ sm → position:fixed ข้างในจะถูกตัด/ยึดกับกล่องนั้นแทนหน้าจอ · ผลที่ตามมา: CSS variable ของแต่ละเครื่องมือ (--gq-*/--rs-*)
-// ไม่ลงมาถึง portal → ใช้ค่าสีตรงๆ (แบรนด์ #a2191d = primary-600) ไม่พึ่ง variable
+// overflow-hidden ที่ sm → position:fixed ข้างในจะถูกตัด/ยึดกับกล่องนั้นแทนหน้าจอ (transform ทำให้ลูกที่เป็น fixed ยึดกับกล่องแทน viewport)
+// สี: ใช้ Tailwind token primary-* (ค่าเดียวกับแบรนด์ #a2191d = primary-600) ไม่พึ่ง CSS variable ของเครื่องมือ (--gq-*/--rs-*)
+// เพราะ variable พวกนั้นประกาศบน wrapper ของแต่ละเครื่องมือ — portal ไป body อยู่นอก wrapper จึงไม่ได้รับค่า
 // ข้อความ body ส่งเข้ามา (quiz: lib/gem-quiz/config · วัดไซส์: lib/ring-size/config) — ห้ามมีเลขราคา
 
 export const LEAVE_COPY = {
@@ -23,7 +24,7 @@ export const LEAVE_COPY = {
 } as const;
 
 const FOCUSABLE = 'a[href], button:not([disabled])';
-const RING = "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#a2191d]";
+const RING = "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600";
 
 export function LeaveSheet({ body, onStay }: { body: string; onStay: () => void }) {
   const titleId = useId();
@@ -86,13 +87,13 @@ export function LeaveSheet({ body, onStay }: { body: string; onStay: () => void 
             ref={stayRef}
             type="button"
             onClick={onStay}
-            className={`inline-flex min-h-[52px] w-full items-center justify-center rounded-full bg-[#a2191d] px-5 text-base font-semibold text-white transition-colors hover:bg-[#801418] ${RING}`}
+            className={`inline-flex min-h-[52px] w-full items-center justify-center rounded-full bg-primary-600 px-5 text-base font-semibold text-white transition-colors hover:bg-primary-700 ${RING}`}
           >
             {LEAVE_COPY.stay}
           </button>
           <a
             href={HUB_URL}
-            className={`inline-flex min-h-[52px] w-full items-center justify-center rounded-full border-[1.5px] border-[#a2191d] bg-white px-5 text-base font-medium text-[#a2191d] transition-colors hover:bg-[#faf5f5] ${RING}`}
+            className={`inline-flex min-h-[52px] w-full items-center justify-center rounded-full border-[1.5px] border-primary-600 bg-white px-5 text-base font-medium text-primary-600 transition-colors hover:bg-primary-50 ${RING}`}
           >
             {LEAVE_COPY.leave}
           </a>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, type MouseEvent } from "react";
+import { useEffect, useRef, useState, type MouseEvent } from "react";
 import { LeaveSheet } from "./LeaveSheet";
 import { ToolsHubLink, type ToolsHubLinkVariant } from "./ToolsHubLink";
 
@@ -25,6 +25,19 @@ export function ToolsHubExit({
   const [open, setOpen] = useState(false);
   const openerRef = useRef<HTMLElement | null>(null);
 
+  // งานค้างหายระหว่างที่ sheet เปิด (เช่น popstate เปลี่ยนจอ) → ปิดและ "ล้าง open" จริง — ไม่งั้น open ค้าง true แล้ว sheet เด้งเองตอน dirty กลับมา
+  useEffect(() => {
+    if (!dirty) setOpen(false);
+  }, [dirty]);
+
+  // Back ของเครื่องตอน sheet เปิด: จอข้างหลังเปลี่ยน → ปิด sheet (ไม่ค้างทับจอใหม่)
+  useEffect(() => {
+    if (!open) return;
+    const close = () => setOpen(false);
+    window.addEventListener("popstate", close);
+    return () => window.removeEventListener("popstate", close);
+  }, [open]);
+
   const onClick = (e: MouseEvent<HTMLAnchorElement>) => {
     if (!dirty) return;
     if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
@@ -43,7 +56,7 @@ export function ToolsHubExit({
   return (
     <>
       <ToolsHubLink variant={variant} className={className} onClick={onClick} />
-      {open && dirty ? <LeaveSheet body={leaveBody} onStay={stay} /> : null}
+      {open ? <LeaveSheet body={leaveBody} onStay={stay} /> : null}
     </>
   );
 }

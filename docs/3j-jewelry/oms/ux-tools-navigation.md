@@ -325,7 +325,7 @@ Edge: ข้อความ "เครื่องมือ 3J" ยาวเก�
 | `ToolsHubExit` (ใหม่ · client) | ห่อ `nav`/`text` + prop `dirty: boolean` + `leaveBody: string` · `dirty` → `preventDefault` + เปิด `LeaveSheet` · ไม่ dirty → ปล่อยลิงก์ตามปกติ | อยู่ `(quiz)/_components/` · ห้าม import `use server` (test `no-server-action-graph` คลุมอยู่) |
 | `LeaveSheet` (ใหม่ · client) | bottom sheet ยืนยันออก | โครง focus trap/ปิดจาก `ring-size/_components/G3Sheet.tsx` (ผมไม่ได้เปิดไฟล์ — ให้ frontend ยกโครงมา ไม่เขียนใหม่) · token `--rs-*` ใน ring-size / `--gq-*` ใน quiz |
 | `lib/nav/screen-history.ts` (ใหม่ · pure) | `nextHistoryState(key, id, i)` · `readHistState(key, guard)` — คง `__NA` | ยกจาก `RingSizeClient.tsx` · ring-size ยังใช้ของตัวเองใน P1 |
-| `GemQuizClient` (แก้) | ทุกจอ = entry · `goBack` แบบ ring-size (`stackRef`/`idxRef`/`backPendingRef`) · popstate + guard · Loading→Result ด้วย replace · restart = `history.go(-i)` · ส่งซ้ำเฉพาะคำตอบเปลี่ยน | ต้องมีเทสต์ใหม่ (ข้อ 11) |
+| `GemQuizClient` (แก้) | ทุกจอ = entry · `goBack` แบบ ring-size (`stackRef`/`idxRef`/`backPendingRef`) · popstate + guard · Loading→Result ด้วย replace · restart = `history.go(-i)` (+ `backPendingRef` กัน "เริ่ม" เร็วกว่า popstate) · ถอยแก้คำตอบ = ไม่ส่งสถิติซ้ำ (§16 Q5) · ส่งใหม่เฉพาะ "ทำแบบทดสอบใหม่" `retake=true` | ต้องมีเทสต์ใหม่ (ข้อ 11) |
 | `QuizHeader` (แก้) | เพิ่ม slot ขวา = `ToolsHubExit` แทนข้อความ "3J" · prop `hubDirty` | ปุ่มถอย/ตัวนับ/progress เดิม |
 | `ResultScreen` (แก้) | ซ้ายบน: ไอคอน "เริ่มใหม่" → ปุ่มถอย (→ Q5) · ขวาบน `nav` · ท้ายหน้า text link hub ใต้ "ทำแบบทดสอบใหม่" | ปุ่ม/ลิงก์หลักเดิมไม่แตะ · `buildShowcaseHref` ไม่แตะ |
 | `Landing` (quiz) (แก้) | ย้าย `← เครื่องมือ 3J` จากใต้ปุ่มเริ่มไปซ้ายบน | |

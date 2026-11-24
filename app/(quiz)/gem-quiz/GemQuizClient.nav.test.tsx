@@ -285,6 +285,27 @@ describe("Loading / Result / restart (N7)", () => {
     expect(btn("ถัดไป")).toBeDisabled();
   }, 15000);
 
+  it("กด 'เริ่ม' เร็วกว่า popstate ของ restart → ไม่ push (ไม่ถูกดึงกลับ Landing) · popstate มาแล้วเริ่มได้ปกติ", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 204 })));
+    const u = userEvent.setup();
+    render(<GemQuizClient token="t" />);
+    await toResult(u);
+    // go() ไม่ทำอะไร = จำลอง popstate ที่ยังมาไม่ถึง
+    vi.spyOn(window.history, "go").mockImplementation(() => {});
+    await u.click(btn("ทำแบบทดสอบใหม่"));
+    const push = vi.spyOn(window.history, "pushState");
+    fireEvent.click(btn("เริ่มทำแบบทดสอบ"));
+    expect(push).not.toHaveBeenCalled();
+    expect(screen.getByRole("heading", { name: /DAILY/ })).toBeInTheDocument();
+    // popstate มาถึง → ปลดล็อก
+    act(() => {
+      window.dispatchEvent(new PopStateEvent("popstate", { state: { gq: "landing", i: 0 } }));
+    });
+    await start(u);
+    expect(screen.getByRole("heading", { name: qTitle("birth_day") })).toBeInTheDocument();
+    expect(push).toHaveBeenCalledTimes(1);
+  }, 15000);
+
   it("Forward หลังเริ่มใหม่ (entry เก่ายังอยู่) → Landing ไม่ใช่จอผลของคำตอบที่ถูกล้าง", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 204 })));
     const u = userEvent.setup();

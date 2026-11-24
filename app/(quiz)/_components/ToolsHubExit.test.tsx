@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 // ToolsHubExit + LeaveSheet (ux-tools-navigation §5 · มติเจ้าของ 24 พ.ย. 69)
 //   ไม่ dirty = ลิงก์ปกติ ไม่ถาม (N6) · dirty = ถามก่อนออก (N5) · อยู่ต่อ/Esc/พื้นหลัง = ไม่ออก + คืนโฟกัส · ออก = ลิงก์ hub ธรรมดา (N2)
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -128,6 +128,25 @@ describe("ToolsHubExit — มีงานค้าง", () => {
     await userEvent.setup().click(hub());
     expect(dialog()).not.toBeNull();
     rerender(<ToolsHubExit dirty={false} leaveBody={BODY} />);
+    expect(dialog()).toBeNull();
+  });
+
+  it("dirty false → true อีกครั้งหลัง sheet เคยเปิด → sheet ต้องไม่เด้งเอง (open ถูกล้างจริง)", async () => {
+    const { rerender } = render(<ToolsHubExit dirty leaveBody={BODY} />);
+    await userEvent.setup().click(hub());
+    expect(dialog()).not.toBeNull();
+    rerender(<ToolsHubExit dirty={false} leaveBody={BODY} />);
+    rerender(<ToolsHubExit dirty leaveBody={BODY} />);
+    expect(dialog()).toBeNull();
+  });
+
+  it("Back ของเครื่อง (popstate) ตอน sheet เปิด → sheet ปิด แม้ dirty ยังเป็น true", async () => {
+    render(<ToolsHubExit dirty leaveBody={BODY} />);
+    await userEvent.setup().click(hub());
+    expect(dialog()).not.toBeNull();
+    act(() => {
+      window.dispatchEvent(new PopStateEvent("popstate", { state: null }));
+    });
     expect(dialog()).toBeNull();
   });
 });
