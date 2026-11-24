@@ -1047,27 +1047,30 @@ var BYPASS2 = {
 
 /* =====================================================================
    2c) แบบที่ 8 "แหวนเม็ดเดี่ยว 6 เตย" (solitaire · cathedral) [ต้องยืนยัน: ชื่อแบบ]
-       อ่านจากรูปถ่ายถือมือ 4 มุม ไม่มีไม้บรรทัด -> ทุกค่าเป็นค่าประมาณ
-       [ต้องยืนยัน: ขนาดพลอย มม. · น้ำหนักแหวน ก. · ไซซ์นิ้วจริง] — ยังไม่มีจากเจ้าของ
-       ตัวเรือนเป็นห่วงปิดเต็มวง ก้านเรียวบาง · แขน 2 ข้างยกจากก้านขึ้นรับตะกร้า (cathedral/V เบาๆ) · เตย 6 ซี่ลู่เข้าเป็นตะกร้าแคบ ข้างใต้พลอยโปร่ง
+       v2 (24 พ.ย.): ยึดสเก็ตช์เจ้าของ sketch-owner-24nov.png + ค่าที่เจ้าของยืนยัน (พลอย Ø4.0 · หัวสูง 4.5 · ก้านหนา 1.2 · วงใน Ø16.5 US 6)
+       ส่วนที่ยังประมาณ: ความกว้างก้าน · Ø เตย · Ø แขนไหล่ · ตำแหน่งแขน · น้ำหนัก [ต้องยืนยัน: น้ำหนักแหวน ก.]
+       ก้านเป็นห่วงปิดเต็มวง เรียวเข้าหาหัว · ไหล่แยก 2 แขนต่อข้าง (split cathedral) โค้งขึ้นรับใต้หัว · เตย 6 ซี่แบบอิตาลี ตรงลงเป็นถ้วยเรียว ปลายเป็นปุ่มกลม ไม่มีวงลวด
        builder แยก (buildSolitaireRing) ไม่แตะ buildRowRing/buildBypassRing -> 7 แบบเดิมไม่เปลี่ยน
    ===================================================================== */
 var SOLITAIRE = {
   setting: "solitaire",
   stoneCount: 1,
-  innerDiaMm: 17.2,        // ไซซ์อ้างอิงเดียวกับแบบอื่น (EU 54) ไม่ใช่ไซซ์จริงของชิ้น — รอวัดจริง
-  stoneMm: 5.0,            // ประมาณจากรูป — รอวัดจริง (พลอยกลม Ø ~5 mm · ช่วงที่เป็นไปได้ 4.0-5.5 mm · ความมั่นใจต่ำ) [ต้องยืนยัน: ขนาดพลอย]
+  innerDiaMm: 16.5,        // เจ้าของยืนยัน (สเก็ตช์): วงใน Ø16.5 mm = US 6
+  stoneMm: 4.0,            // เจ้าของยืนยัน (สเก็ตช์): พลอยกลม Ø4.0 mm
   gapMm: 0,                // ไม่ใช้ (เม็ดเดียว)
-  headHeightMm: 2.6,       // ประมาณจากรูป — รอวัดจริง (ขอบเอวพลอยสูงกว่าผิวก้าน · ถูกบังคับขั้นต่ำให้ culet พ้นผิว 0.25 mm = 2.58 mm สำหรับ Ø5.0)
-  bandWidthMm: 1.9,        // ประมาณจากรูป — รอวัดจริง (กว้างก้านใต้หัว · ก้านบางกว่าแบบแถวทุกแบบ)
-  bandWidthBackMm: 1.5,    // ประมาณจากรูป — รอวัดจริง (กว้างก้านด้านหลัง)
-  bandThickMm: 1.3,        // ประมาณจากรูป — รอวัดจริง (หนาก้านใต้หัว หน้าตัดวงรีแบน)
-  bandThickBackMm: 1.1,    // ประมาณจากรูป — รอวัดจริง (หนาก้านด้านหลัง · ≥ ~0.8-1.0 mm เกณฑ์หล่อเงิน 925)
-  prongMm: 0.7,            // ประมาณจากรูป — รอวัดจริง (เตย 6 ซี่ Ø ~0.7 mm เท่าเกณฑ์หล่อเงิน 925)
-  prongOverMm: 0.35,       // ประมาณจากรูป — รอวัดจริง (ปลายเตยสูงกว่าขอบเอวพลอย)
-  armMm: 1.1,              // ประมาณจากรูป — รอวัดจริง (เส้นผ่านศูนย์กลางแขนไหล่ที่โคน · ปลายเรียวเหลือ ~85%)
-  armStartRad: 0.45,       // ประมาณจากรูป — รอวัดจริง (แขนเริ่มยกจากก้านที่ห่างจากยอดวงกี่เรเดียน = ~4 mm ตามเส้นวง)
-  basketRingMm: 0.6        // ประมาณจากรูป — รอวัดจริง (ลวดวงรัดตะกร้าใต้พลอย Ø ~0.6 mm)
+  headHeightMm: 4.5,       // เจ้าของยืนยัน (สเก็ตช์): จากผิวบนก้านถึงหน้าพลอย (table) 4.5 mm
+  bandWidthMm: 1.6,        // ประมาณจากสเก็ตช์ top view — รอวัดจริง (กว้างก้านใต้หัว · เรียวเข้าหาหัว)
+  bandWidthBackMm: 2.0,    // ประมาณจากสเก็ตช์ side view — รอวัดจริง (กว้างก้านด้านหลัง/ด้านข้าง)
+  bandThickMm: 1.2,        // เจ้าของยืนยัน (สเก็ตช์): ก้านหนา 1.2 mm (ด้านข้าง)
+  bandThickBackMm: 1.2,    // เจ้าของยืนยัน: 1.2 mm สม่ำเสมอ (สเก็ตช์ไม่แสดงการเรียวด้านหลัง)
+  prongMm: 0.7,            // ประมาณ — รอวัดจริง (เตย 6 ซี่ Ø ~0.7 mm เท่าเกณฑ์หล่อเงิน 925)
+  prongOverMm: 0.3,        // ประมาณจากสเก็ตช์ — รอวัดจริง (ปุ่มปลายเตยสูงกว่าขอบเอวพลอย)
+  armMm: 0.8,              // ประมาณจากสเก็ตช์ — รอวัดจริง (Ø แขนไหล่ที่โคน · ปลายเรียวเหลือ ~85% · เกณฑ์หล่อ ~0.8 mm)
+  armOuterStartRad: 0.55,  // ประมาณจากสเก็ตช์ — รอวัดจริง (แขนนอกแยกจากก้านที่ ~31° จากยอดวง ≈ 4.5 mm ตามเส้นวง · อยู่ระนาบเดียวกับก้าน)
+  armInnerStartRad: 0.30,  // ประมาณจากสเก็ตช์ — รอวัดจริง (แขนในแยกที่ ~17° ≈ 2.6 mm)
+  armOuterF: 0.5,          // ประมาณ — ความสูงที่แขนนอกเสียบซี่เตย (0 = โคนถ้วย · 1 = ขอบเอว) · แขนนอกสูงกว่าแขนในเพื่อไม่ให้ไขว้กัน
+  armInnerF: 0.18,         // ประมาณ — ความสูงที่แขนในเสียบซี่เตย (ต่ำ ชิดผิวก้าน)
+  cupBaseMm: 2.8           // ประมาณจากคำอธิบาย TL — รอวัดจริง (เส้นผ่านศูนย์กลางโคนถ้วย แคบกว่าพลอย Ø4.0 เล็กน้อย)
 };
 
 /* buildSolitaireRing(params) — pure · คืนโครงเดียวกับ buildBypassRing: { metal, gems[], info, params } · gems[0] = พลอยกลมเม็ดเดียว (สีเปลี่ยนได้)
@@ -1152,9 +1155,9 @@ function buildSolitaireRing(params){
   var innerR = p.innerDiaMm/2, d = p.stoneMm, R = d/2, parts = [], gems = [];
   var hc = 0.16*d, gT = 0.035*d, hp = 0.43*d, rp = p.prongMm/2;
   var topSh = innerR + p.bandThickMm;                                      // ผิวบนก้านที่หัว
-  var headEff = Math.max(p.headHeightMm, hp + gT + 0.25);
+  var headEff = Math.max(p.headHeightMm, hc + hp + gT + 0.25);             // headHeightMm = ผิวก้าน -> หน้าพลอย (table) · ขั้นต่ำให้ culet พ้นผิวก้าน 0.25 mm
   if(headEff > p.headHeightMm + 1e-9) notes.push("headHeightMm ต่ำเกินไป — ปรับเป็น " + headEff.toFixed(2) + " mm เพื่อให้ culet พ้นผิวก้าน");
-  var Rg = topSh + headEff;                                                // รัศมีขอบเอวพลอย (จากแกนวง)
+  var Rg = topSh + headEff - hc;                                           // รัศมีขอบเอวพลอย (จากแกนวง) = ต่ำกว่าหน้าพลอย hc
   if(p.prongMm < 0.7) notes.push("prongMm " + p.prongMm + " mm ต่ำกว่าเกณฑ์หล่อเงิน 925 (~0.7 mm) — ภาพนี้เพื่อเทียบรูปเท่านั้น");
   if(p.bandThickBackMm < 0.9 || p.bandWidthBackMm < 1.2) notes.push("ก้านด้านหลังบางกว่าเกณฑ์ ~0.8-1.0 mm — ต้องให้ช่างยืนยัน");
 
@@ -1184,32 +1187,29 @@ function buildSolitaireRing(params){
   gems.push({center:fr.G.slice(), normal:fr.u.slice(), radiusMm:R, mesh:roundGem(fr, R, R, 0, hc, gT, hp)});
 
   /* ---- เตย 6 ซี่ (ทุก 60°) ลู่เข้าเป็นตะกร้าแคบที่โคน แล้วบานถึงขอบเอว · ซี่ 0° และ 180° อยู่แนวสัมผัสวง = จุดรับแขนไหล่ ---- */
-  var h0 = (topSh - 0.55) - Rg, fs = [0, 0.3, 0.65, 1], Rr = R + 0.6*rp, ai, fi, al, ex, ez, sc1, path;
-  function scAt(f){return 0.30 + 0.70*Math.pow(f, 0.8);}                   // สัดส่วนรัศมีตะกร้าที่ความสูง f (0 = โคน · 1 = ขอบเอว)
+  var yB = topSh - 0.3, H = Rg - yB, fs = [0, 0.35, 0.7, 1], Rr = R - 0.1, ai, fi, al, ex, ez, sc1, path;   // yB = โคนซี่ (ฝังในก้าน 0.3 mm) · H = ความสูงซี่ · Rr = รัศมีศูนย์กลางซี่ที่ขอบเอว (ผิวนอกซี่ยื่นพ้นขอบเอวแค่ ~0.25 mm)
+  var cupR0 = p.cupBaseMm/2/Rr;                                            // สัดส่วนรัศมีโคนถ้วย (ฐานแคบกว่าพลอยเล็กน้อย)
+  function scAt(f){return cupR0 + (1 - cupR0)*f;}                          // รัศมีซี่ที่ความสูง f (0 = โคน · 1 = ขอบเอว) เรียวเข้าเล็กน้อยด้านล่าง เกือบตั้งตรง
   for(ai=0; ai<6; ai++){
     al = ai*Math.PI/3; ex = Rr*Math.cos(al); ez = Rr*Math.sin(al); path = [];
     for(fi=0; fi<fs.length; fi++){
       sc1 = scAt(fs[fi]);
-      path.push([ex*sc1, Rg + h0*(1-fs[fi]), ez*sc1]);
+      path.push([ex*sc1, yB + H*fs[fi], ez*sc1]);
     }
-    path.push([ex*0.93, Rg + p.prongOverMm, ez*0.93]);
-    parts.push(tube(path, [1.25*rp, 1.05*rp, 0.9*rp, 0.8*rp, 0.3*rp], 8));
+    path.push([ex*0.97, Rg + 0.15, ez*0.97]);                              // เหนือขอบเอว: ตั้งตรงต่อ แล้วโค้งงุ้มเข้ากดขอบพลอย (ไม่บานออก)
+    path.push([ex*0.88, Rg + p.prongOverMm, ez*0.88]);
+    path.push([ex*0.84, Rg + p.prongOverMm + 0.12, ez*0.84]);              // ปุ่มกลมปลายเตย (ปิดปลายท่อ)
+    parts.push(tube(path, [1.2*rp, 1.1*rp, 1.0*rp, 0.95*rp, 0.9*rp, 0.85*rp, 0.3*rp], 8));
   }
-  /* ลวดวงรัดตะกร้า 1 วง ที่ความสูง f = 0.3 (ผ่านกลางซี่ทั้ง 6) */
-  (function(){
-    var rr = Rr*scAt(0.3), yy = Rg + h0*0.7, NR = 24, rpth = [], rad = [], ang;
-    for(q=0;q<=NR;q++){ang = 2*Math.PI*q/NR; rpth.push([rr*Math.cos(ang), yy, rr*Math.sin(ang)]); rad.push(p.basketRingMm/2);}
-    parts.push(tube(rpth, rad, 6));
-  })();
 
-  /* ---- แขนไหล่ 2 ข้าง (cathedral): ยกจากก้านที่ห่างยอดวง armStartRad แล้วโค้งขึ้นไปเสียบซี่ 0°/180° ที่ f = 0.35 ---- */
-  var sd, aStart, thA, rA, xE, yE, thB, rB, u, ap, arad, NA = 9, fE = 0.35;
-  for(sd=-1; sd<=1; sd+=2){
-    aStart = p.armStartRad; thA = Math.PI/2 - sd*aStart; rA = innerR + htAt(aStart);
-    xE = sd*Rr*scAt(fE); yE = Rg + h0*(1-fE); thB = Math.atan2(yE, xE); rB = Math.sqrt(xE*xE + yE*yE);
+  /* ---- ไหล่ split cathedral: 2 แขนต่อข้าง (นอก/ใน) ยกจากก้านคนละจุด โค้งขึ้นไปเสียบซี่ 0°/180° คนละความสูง · เหลือช่องโปร่งระหว่างแขน ---- */
+  var sd, aStart, fE, thA, rA, xE, yE, thB, rB, u, ap, arad, NA = 9, ak, starts = [p.armOuterStartRad, p.armInnerStartRad], fEs = [p.armOuterF, p.armInnerF];
+  for(sd=-1; sd<=1; sd+=2) for(ak=0; ak<2; ak++){
+    aStart = starts[ak]; fE = fEs[ak]; thA = Math.PI/2 - sd*aStart; rA = innerR + htAt(aStart);
+    xE = sd*Rr*scAt(fE); yE = yB + H*fE; thB = Math.atan2(yE, xE); rB = Math.sqrt(xE*xE + yE*yE);
     ap = []; arad = [];
     for(q=0;q<NA;q++){
-      u = q/(NA-1); var thq = thA + (thB-thA)*u, rq = rA + (rB-rA)*smooth(u);
+      u = q/(NA-1); var thq = thA + (thB-thA)*u, rq = rA + (rB-rA)*Math.pow(u, 1.8);   // เริ่มแนบก้าน แล้วยกชันขึ้นใกล้ถ้วย (ไม่ลอยยาว)
       ap.push([rq*Math.cos(thq), rq*Math.sin(thq), 0]);
       arad.push(p.armMm/2*(1 - 0.15*u));
     }
@@ -1535,7 +1535,7 @@ function buildBypassRing(params){
     var info = ring.info, sp = document.getElementById("spec");
     function r(k,v){return '<div class="row"><span class="k">'+k+'</span><span class="v">'+v+'</span></div>';}
     var sh = cfg.setting, prongTxt =
-      sh==="solitaire" ? "เตย Ø"+cfg.prongMm.toFixed(2)+" mm × 6 + ลวดรัดตะกร้า Ø"+cfg.basketRingMm.toFixed(1)+" mm <em>ประมาณ</em>" :
+      sh==="solitaire" ? "เตยอิตาลี Ø"+cfg.prongMm.toFixed(2)+" mm × 6 ตรงลงเป็นถ้วยเรียว ปลายปุ่มกลม <em>ประมาณ</em>" :
       sh==="prong4" ? "Ø"+cfg.prongMm.toFixed(1)+" mm × 4/เม็ด <em>ประมาณ</em>" :
       sh==="shared_prong" ? "Ø"+cfg.prongMm.toFixed(1)+" mm ร่วมระหว่างเม็ด 2 ต้น/ช่อง <em>ประมาณ</em>" :
       sh==="bypass" ? "เตย Ø"+cfg.prongMm.toFixed(2)+" mm × 4/พลอยไข่ · CZ เล็ก เตย Ø"+cfg.czProngMm.toFixed(1)+" mm × 3 <em>ประมาณ</em>" :
@@ -1550,8 +1550,8 @@ function buildBypassRing(params){
     var hasBlk = cfg.support==="block" && (sh==="shared_prong" || sh==="bar_prong" || sh==="window_head");
     var shTxt = cfg.shoulder==="scroll_relief" ? (hasBlk ? "กรอบนูน + ลาย S นูน บนก้านรับข้าง <em>ประมาณ</em>" : "ลายก้นหอยนูน (ลายนูนตื้น) <em>ประมาณ</em>") : "เรียบ";
     if(sh==="solitaire"){
-      galTxt = "ตะกร้าเปิดข้าง ใต้พลอยโปร่ง · ไม่มีลาย";
-      shTxt = "cathedral — แขนไหล่ Ø"+cfg.armMm.toFixed(1)+" mm ยก 2 ข้าง <em>ประมาณ</em>";
+      galTxt = "ถ้วยเปิดข้าง ใต้พลอยโปร่ง · ไม่มีลาย";
+      shTxt = "split cathedral — 2 แขนต่อข้าง Ø"+cfg.armMm.toFixed(1)+" mm <em>ประมาณ</em>";
     }
     sp.innerHTML =
       r("ไซซ์อ้างอิง","EU 54 · Ø ใน "+cfg.innerDiaMm.toFixed(1)+" mm")+
