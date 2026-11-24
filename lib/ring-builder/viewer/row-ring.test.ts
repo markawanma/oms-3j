@@ -96,13 +96,13 @@ describe("mainIndexes", () => {
 });
 
 describe("getShowcaseRing", () => {
-  it("คืนวงของทั้ง 7 แบบ · cache คืนก้อนเดิม", () => {
+  it("คืนวงของทั้ง 8 แบบ · cache คืนก้อนเดิม", () => {
     clearShowcaseRingCache();
-    expect(SHOWCASE_RING_IDS).toHaveLength(7);
+    expect(SHOWCASE_RING_IDS).toHaveLength(8);
     for (const id of SHOWCASE_RING_IDS) {
       const a = getShowcaseRing(id);
       expect(getShowcaseRing(id)).toBe(a);
-      expect(a.gems.length).toBeGreaterThanOrEqual(3);
+      expect(a.gems.length).toBeGreaterThanOrEqual(id === "solitaire" ? 1 : 3); // เม็ดเดี่ยว = 1 เม็ด (D1.3)
     }
   });
   it("ไขว้ = ผลเดียวกับ buildBypassRing() เดิม (4 เม็ด)", () => {
@@ -147,6 +147,9 @@ describe("Z7/Z9 — import graph", () => {
 
   it("row-ring ถูก import โดย showcase-rings.ts (ตัวสร้าง) และ row-presets.ts (type เท่านั้น)", () => {
     expect(importers(/from\s+["'][^"']*\/row-ring["']/)).toEqual(["row-presets.ts", "showcase-rings.ts"]);
+  });
+  it("Z16: solitaire-ring ถูก import โดย showcase-rings.ts ตัวเดียว", () => {
+    expect(importers(/from\s+["'][^"']*\/solitaire-ring["']/)).toEqual(["showcase-rings.ts"]);
   });
   it("row-presets ถูก import โดย showcase-rings.ts ตัวเดียว", () => {
     expect(importers(/from\s+["'][^"']*\/row-presets["']/)).toEqual(["showcase-rings.ts"]);
@@ -195,7 +198,7 @@ describe("Z9 — row-ring ไม่เข้า first-load bundle (import graph 
 
   it("กราฟ static ของ page.tsx (= first-load) ไม่แตะ row-ring / row-presets / showcase-rings / RingViewer / bypass-ring", () => {
     const files = reach(page, false);
-    for (const f of ["row-ring.ts", "row-presets.ts", "showcase-rings.ts", "RingViewer.tsx", "bypass-ring.ts", "RingStage.tsx"]) {
+    for (const f of ["row-ring.ts", "row-presets.ts", "solitaire-ring.ts", "showcase-rings.ts", "RingViewer.tsx", "bypass-ring.ts", "RingStage.tsx"]) {
       // RingStage ถูก import แบบ static (ตัวคุม) — แต่ตัว builder ต้องไม่อยู่
       if (f === "RingStage.tsx") expect(files.has(f)).toBe(true);
       else expect(files.has(f), f).toBe(false);
@@ -203,7 +206,7 @@ describe("Z9 — row-ring ไม่เข้า first-load bundle (import graph 
   });
   it("กราฟรวม dynamic import: RingViewer.tsx ลาก showcase-rings → row-ring/row-presets/bypass-ring (อยู่ใน chunk lazy)", () => {
     const files = reach(page, true);
-    for (const f of ["RingViewer.tsx", "showcase-rings.ts", "row-ring.ts", "row-presets.ts", "bypass-ring.ts"]) expect(files.has(f), f).toBe(true);
+    for (const f of ["RingViewer.tsx", "showcase-rings.ts", "row-ring.ts", "row-presets.ts", "solitaire-ring.ts", "bypass-ring.ts"]) expect(files.has(f), f).toBe(true);
   });
   it("showcase-rings ถูก import จาก RingViewer.tsx ตัวเดียว", () => {
     const hits: string[] = [];
