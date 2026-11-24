@@ -1,6 +1,6 @@
 "use client";
 
-// RingShowcaseClient — หน้า "แบบของ 3J Jewelry" (/ring-builder): เลือกได้ 7 แบบแหวน (D1.2) · ราคา = config.ts · ชื่อ/ตำแหน่งพลอย/ไซซ์ = designs.ts · รูป = _assets
+// RingShowcaseClient — หน้า "แบบของ 3J Jewelry" (/ring-builder): เลือกได้ 8 แบบแหวน (D1.2 · D1.3 เพิ่มเม็ดเดี่ยว) · ราคาต่อแบบ = config.ts · ชื่อ/ตำแหน่งพลอย/ไซซ์ = designs.ts · รูป = _assets
 // D1.2 state เพิ่ม: designId (แบบแหวน · เริ่มจาก `r`) — เปลี่ยนแบบไม่ล้าง พลอย/โหมด/เรื่อง/ไซซ์ดิบ · effectiveSize คำนวณใน render ที่เดียว (ไซซ์ดิบนอกช่วงของแบบ → null) แล้วส่งให้ SizePicker/สรุป/LINE ทุกจุด (Z2)
 // D1.2a (18 พ.ย. 69): แบบแถว 3–7 เม็ด โหมด "เลือกพลอยเอง" = เลือกสีทีละเม็ด (ซ้าย→ขวา · ทุกเม็ดเท่ากัน ราคาเท่าเดิม) · ไขว้ 2 เม็ดคงเดิม (บน/ล่าง)
 //   state `ownByCount` (จำสีต่อจำนวนเม็ด: 2 ไขว้ · 3/4/6/7 แถว) แทน `own` เดี่ยว — สลับแบบ 7→4→7 สีเดิมกลับมา · ครบทุกเม็ดหรือไม่มีเลย (ไม่มีเม็ดว่างครึ่งๆ)
@@ -15,7 +15,7 @@ import { useEffect, useMemo, useState } from "react";
 import { GEM_QUIZ_DISCLAIMER, type GemQuizIntention, type GemQuizStoneCode } from "@/lib/gem-quiz/config";
 import { getLastMeasuredSize, type LastMeasuredSize } from "@/lib/ring-builder/last-size";
 import { SHOWCASE_COPY, SHOWCASE_PHOTO_VIEWS, formatPriceThb, leadTimeLabel } from "@/lib/ring-builder/showcase/config";
-import { getShowcaseDesign, ownSlotCount, roleMainLabel, roleSubLabel, seedFromPair, type ShowcaseDesignId } from "@/lib/ring-builder/showcase/designs";
+import { getShowcaseDesign, isSingleStone, ownSlotCount, roleMainLabel, roleSubLabel, seedFromPair, type ShowcaseDesignId } from "@/lib/ring-builder/showcase/designs";
 import { DIRECT_STONE_LABEL, isShowcaseSize, type ShowcaseChoice } from "@/lib/ring-builder/showcase/line-message";
 import { fillAll, fitOwnToCount, formatOwnSlots, ownSlotsAria, slotLabel } from "@/lib/ring-builder/showcase/own-slots";
 import { buildShowcaseUrl, CZ_SLOT, isSlotCode, isStoneCode, type SlotCode, type GemTop3, type IntentionTable, type OwnGems, type ShowcaseParams } from "@/lib/ring-builder/showcase/quiz-link";
@@ -111,12 +111,15 @@ export function RingShowcaseClient({ params }: { params: ShowcaseParams }) {
   const bottomLabel = bottomCode ? stoneLabel(bottomCode) : DIRECT_STONE_LABEL;
   // รายเม็ด: aria ใช้ helper เดียวกับ LINE/สรุป · แถว+เลือกเองที่ยังไม่เลือก: ไม่มีคำหลัก/เสริม
   const slotRows = choice.kind === "ownSlots" ? formatOwnSlots(choice.codes) : null;
+  const single = isSingleStone(design);
   const stageAria =
     slotRows !== null
       ? `ภาพจำลอง${design.name} 3 มิติ ${ownSlotsAria(slotRows)}`
       : active === "own" && isRow
         ? `ภาพจำลอง${design.name} 3 มิติ ${SHOWCASE_COPY.gemNone}`
-        : `ภาพจำลอง${design.name} 3 มิติ ${roleMainLabel(design)} ${topLabel} ${roleSubLabel(design)} ${bottomLabel}${design.extraCz > 0 ? ` CZ เล็ก ${design.extraCz} เม็ด` : ""}`;
+        : single
+          ? `ภาพจำลอง${design.name} 3 มิติ ${SHOWCASE_COPY.singleStoneLabel} ${topLabel}` // เม็ดเดียว: ไม่มีหลัก/เสริม (Z13)
+          : `ภาพจำลอง${design.name} 3 มิติ ${roleMainLabel(design)} ${topLabel} ${roleSubLabel(design)} ${bottomLabel}${design.extraCz > 0 ? ` CZ เล็ก ${design.extraCz} เม็ด` : ""}`;
   const photos = SHOWCASE_PHOTOS[designId];
   // ชื่อมุมถ่ายมีเฉพาะรูปแบบไขว้ที่เจ้าของระบุ — แบบอื่นใช้ alt กลาง ไม่แต่งมุม
   const photoViews = designId === "bypass2" ? SHOWCASE_PHOTO_VIEWS : undefined;
@@ -192,6 +195,12 @@ export function RingShowcaseClient({ params }: { params: ShowcaseParams }) {
   function pickSlotGem(code: SlotCode) {
     setUndoSnap(null);
     const name = slotLabel(code);
+    if (single) {
+      // เม็ดเดียว: ไม่มี "ทุกเม็ด/เม็ดที่ n" (Z13)
+      setOwnByCount((p) => ({ ...p, [ownCount]: [code] }));
+      setAnnounce(SHOWCASE_COPY.singleStoneAnnounce(name));
+      return;
+    }
     if (ownCodes === null) {
       setOwnByCount((p) => ({ ...p, [ownCount]: fillAll(ownCount, code) }));
       setAnnounce(SHOWCASE_COPY.ownFillAllDone(name));

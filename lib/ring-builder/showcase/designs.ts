@@ -1,18 +1,18 @@
-// lib/ring-builder/showcase/designs.ts — แบบแหวน 7 แบบที่ลูกค้าเลือกได้ (D1.2 · pure · ไม่มีเรขาคณิต ไม่ import รูป/viewer)
+// lib/ring-builder/showcase/designs.ts — แบบแหวน 8 แบบที่ลูกค้าเลือกได้ (D1.2 · D1.3 เพิ่มเม็ดเดี่ยว · pure · ไม่มีเรขาคณิต ไม่ import รูป/viewer)
 // แหล่งเดียวของ: id · ชื่อ · จำนวนเม็ด · เม็ดไหนคือ "พลอยหลัก" · คำเรียกตำแหน่ง · ช่วงไซซ์ · CZ เล็กที่มาพร้อมแหวน
-// 🔴 ไม่มีช่องราคา / lead days / ขนาดพลอย (มม.) — ตั้งใจ (Z3/Z7): ราคาอยู่ config.ts ค่าเดียว · ขนาดพลอยเป็นค่าประมาณจากรูป ห้ามถึงลูกค้า
+// 🔴 ไม่มีช่องราคา / lead days / ขนาดพลอย (มม.) — ตั้งใจ (Z3/Z7): ราคาต่อแบบอยู่ config.ts (SHOWCASE_PRICE_THB_BY_DESIGN) ที่เดียว · ขนาดพลอยเป็นค่าประมาณจากรูป ห้ามถึงลูกค้า
 //    พารามิเตอร์ 3D อยู่ viewer/row-presets.ts (ค่าประมาณ) — เชื่อมกันด้วย id เท่านั้น + test ไขว้ (designs.test.ts)
 // 🔴 ค่าที่ต้องมาจากเจ้าของ (ยังไม่ยืนยัน — เปลี่ยนที่นี่ที่เดียว):
-//    TODO_OWNER_DESIGN_NAME   — ชื่อแบบทั้ง 7 เป็นชื่อชั่วคราว (ตาม Yoda/เจ้าของพูดปากเปล่า) · UI ต้องรับชื่อจริงที่ยาวขึ้นได้
+//    TODO_OWNER_DESIGN_NAME   — ชื่อแบบทั้ง 8 เป็นชื่อชั่วคราว (แบบ 8 "แหวนเม็ดเดี่ยว 6 เตย" ชั่วคราวเหมือนกัน) (ตาม Yoda/เจ้าของพูดปากเปล่า) · UI ต้องรับชื่อจริงที่ยาวขึ้นได้
 //    TODO_OWNER_SCROLL6_CENTER — ก้นหอย 6 เม็ด: ใช้กฎ 2 เม็ดกลางเหมือนฝังล็อค (TL ตั้งไว้ก่อน)
 //    TODO_OWNER_EXTRA_CZ       — แบบแถวใหม่ไม่มี CZ เล็ก (มติ 9 พ.ย.: พลอยทุกเม็ดในวงขนาดเท่ากัน) · CZ เล็ก 2 เม็ดมีเฉพาะแบบไขว้
 //    TODO_OWNER_SIZES          — ไซซ์แบบแถวใหม่ 50–60 (ไขว้ 55–58 ตามเดิม)
 
-export const SHOWCASE_DESIGN_IDS = ["bypass2", "trinity", "scroll6", "channel4", "channel6", "bar7", "small7"] as const;
+export const SHOWCASE_DESIGN_IDS = ["bypass2", "trinity", "scroll6", "channel4", "channel6", "bar7", "small7", "solitaire"] as const;
 export type ShowcaseDesignId = (typeof SHOWCASE_DESIGN_IDS)[number];
 export const DEFAULT_DESIGN_ID: ShowcaseDesignId = "bypass2";
 
-export type ShowcaseLayout = { kind: "bypass" } | { kind: "row"; stoneCount: 3 | 4 | 6 | 7 };
+export type ShowcaseLayout = { kind: "bypass" } | { kind: "row"; stoneCount: 1 | 3 | 4 | 6 | 7 };
 
 export interface ShowcaseDesign {
   readonly id: ShowcaseDesignId;
@@ -39,7 +39,7 @@ function range(min: number, max: number): readonly number[] {
 
 const ROW_SIZES = range(50, 60);
 
-function rowDesign(id: ShowcaseDesignId, name: string, shortName: string, stoneCount: 3 | 4 | 6 | 7): ShowcaseDesign {
+function rowDesign(id: ShowcaseDesignId, name: string, shortName: string, stoneCount: 1 | 3 | 4 | 6 | 7): ShowcaseDesign {
   const two = stoneCount % 2 === 0;
   return {
     id,
@@ -70,6 +70,7 @@ export const DESIGNS: readonly ShowcaseDesign[] = [
   rowDesign("channel6", "แหวนฝังล็อค 6 เม็ด", "ฝังล็อค 6 เม็ด", 6), // TODO_OWNER_DESIGN_NAME
   rowDesign("bar7", "แหวนเตย 7 เม็ด", "เตย 7 เม็ด", 7), // TODO_OWNER_DESIGN_NAME
   rowDesign("small7", "แหวนแถวเล็ก 7 เม็ด", "แถวเล็ก 7 เม็ด", 7), // TODO_OWNER_DESIGN_NAME
+  rowDesign("solitaire", "แหวนเม็ดเดี่ยว 6 เตย", "เม็ดเดี่ยว 6 เตย", 1), // TODO_OWNER_DESIGN_NAME (24 พ.ย. 69 · ราคา/ไซซ์ 50–60/21 วัน = ค่าตั้งต้น)
 ];
 
 /** id ต้องอยู่ใน whitelist (เทียบค่าตรงๆ ไม่เดินโซ่ prototype) */
@@ -87,6 +88,11 @@ export function getShowcaseDesign(id: ShowcaseDesignId): ShowcaseDesign {
   const d = DESIGNS.find((x) => x.id === id);
   if (!d) throw new Error(`designs: ไม่มีแบบ "${String(id)}"`);
   return d;
+}
+
+/** เม็ดเดี่ยว (แถว 1 เม็ด) — ไม่มี "พลอยหลัก/เสริม/ทุกเม็ด/เม็ด n/ซ้ายไปขวา" ในข้อความลูกค้า (Z13) · ทุกจุดที่เขียนคำพวกนี้ต้อง branch ด้วยฟังก์ชันนี้ */
+export function isSingleStone(d: ShowcaseDesign): boolean {
+  return d.layout.kind === "row" && d.layout.stoneCount === 1;
 }
 
 /** จำนวนเม็ดของวง (ไขว้ = พลอยไข่ 2 เม็ด + CZ เล็ก = 4 เม็ดในโมเดล แต่นับพลอยหลัก/เสริม 2 เม็ด) */
@@ -125,7 +131,8 @@ export function roleSubLabel(d: ShowcaseDesign): string {
 }
 
 /** บรรทัดอธิบายตำแหน่ง (หัวแผงพลอย) — ท้ายประโยคเรื่อง CZ เล็กแสดงเฉพาะแบบที่มี extraCz */
-export function placementNote(d: ShowcaseDesign): string {
+export function placementNote(d: ShowcaseDesign): string | null {
+  if (isSingleStone(d)) return null; // เม็ดเดียว: ไม่มีหลัก/เสริมให้อธิบาย (D1.3 §15.3 จุดที่ 1)
   const base =
     d.layout.kind === "bypass"
       ? `${d.positions.main} = พลอยหลัก · ${d.positions.sub} = พลอยเสริม`

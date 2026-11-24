@@ -7,7 +7,7 @@ import { useEffect, useRef, useState } from "react";
 import { GemIcon } from "../../gem-quiz/_components/GemIcon";
 import { SHOWCASE_COPY, formatPriceThb } from "@/lib/ring-builder/showcase/config";
 import { copyText } from "@/lib/ring-builder/showcase/clipboard";
-import { getShowcaseDesign, roleMainLabel, roleSubLabel, type ShowcaseDesignId } from "@/lib/ring-builder/showcase/designs";
+import { getShowcaseDesign, isSingleStone, roleMainLabel, roleSubLabel, type ShowcaseDesignId } from "@/lib/ring-builder/showcase/designs";
 import { GEM_QUIZ_STONE_BY_CODE } from "@/lib/gem-quiz/config";
 import { czIconColors } from "@/lib/ring-builder/viewer/gem-colors";
 import { buildShowcaseLineHref, buildShowcaseLineMessage, resolveChoice, type ShowcaseChoice } from "@/lib/ring-builder/showcase/line-message";
@@ -62,7 +62,9 @@ export function OrderSummary({
     ? slotRows.map((r) => [r.label, r.value])
     : unpickedRow
       ? []
-      : [
+      : isSingleStone(design)
+        ? [[SHOWCASE_COPY.singleStoneLabel, resolved?.mainLabel ?? "—"]] // เม็ดเดียว: ไม่มีหลัก/เสริม (Z13)
+        : [
           [roleMainLabel(design), resolved?.mainLabel ?? "—"],
           [roleSubLabel(design), resolved?.subLabel ?? "—"],
         ];

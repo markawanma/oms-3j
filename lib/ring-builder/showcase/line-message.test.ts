@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { GEM_QUIZ_STONE_CODES } from "@/lib/gem-quiz/config";
 import { lineOaMessageUrl } from "@/lib/shop/line";
 import { showcasePriceThb } from "./config";
-import { DESIGNS, SHOWCASE_DESIGN_IDS, getShowcaseDesign, type ShowcaseDesignId } from "./designs";
+import { DESIGNS, SHOWCASE_DESIGN_IDS, getShowcaseDesign, isSingleStone, type ShowcaseDesignId } from "./designs";
 import { buildShowcaseLineHref, buildShowcaseLineMessage, isShowcaseSize, resolveChoice, type ShowcaseChoice } from "./line-message";
 
 const rec = (index: number, top = "citrine", bottom = "garnet") => ({ kind: "rec", index, top, bottom }) as unknown as ShowcaseChoice;
@@ -125,7 +125,11 @@ describe("ทุกแบบ × ทุก choice — ข้อความถู
           const m = buildShowcaseLineMessage({ designId: d.id, choice, size }) as string;
           expect(m).toContain(`แบบแหวน: ${d.name}\n`);
           // D1.2a: แบบแถว + เลือกเองที่ยังไม่เลือก = โหมดรายเม็ด → ไม่มีบรรทัดหลัก/เสริม (contract เปลี่ยน)
-          if (d.layout.kind === "row" && (choice as { unpicked?: boolean }).unpicked === true) expect(m).not.toMatch(/พลอยหลัก|พลอยเสริม/);
+          if (isSingleStone(d)) {
+            // เม็ดเดี่ยว (D1.3 · Z13): ไม่มีหลัก/เสริม/CZ เล็ก/ซ้ายไปขวา · เม็ดเดียว "พลอยเม็ดเดี่ยว: …" (ยกเว้นยังไม่เลือก)
+            expect(m).not.toMatch(/พลอยหลัก|พลอยเสริม|เม็ดข้าง|ทุกเม็ด|เม็ด 1|ซ้ายไปขวา/);
+            if ((choice as { unpicked?: boolean }).unpicked !== true) expect(m).toContain("พลอยเม็ดเดี่ยว: ");
+          } else if (d.layout.kind === "row" && (choice as { unpicked?: boolean }).unpicked === true) expect(m).not.toMatch(/พลอยหลัก|พลอยเสริม/);
           else {
             expect(m).toContain(`พลอยหลัก (${d.positions.main})`);
             expect(m).toContain(`พลอยเสริม (${d.positions.sub})`);
@@ -161,7 +165,7 @@ describe("ทุกแบบ × ทุก choice — ข้อความถู
             n++;
           }
         }
-    expect(n).toBe(7 * 50);
+    expect(n).toBe(DESIGNS.length * 50);
   });
 });
 

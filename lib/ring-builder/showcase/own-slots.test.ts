@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { GEM_QUIZ_STONE_CODES, type GemQuizStoneCode } from "@/lib/gem-quiz/config";
 import { CZ_TINT, slotTints, stoneTint } from "../viewer/gem-colors";
 import { showcasePriceThb } from "./config";
-import { DESIGNS, SHOWCASE_DESIGN_IDS, getShowcaseDesign, ownSlotCount, type ShowcaseDesignId } from "./designs";
+import { DESIGNS, SHOWCASE_DESIGN_IDS, getShowcaseDesign, ownSlotCount, isSingleStone, type ShowcaseDesignId } from "./designs";
 import { buildShowcaseLineMessage, resolveChoice } from "./line-message";
 import { fillAll, fitOwnToCount, formatOwnSlots, isOwnSlots, ownSlotLines } from "./own-slots";
 import { buildShowcaseUrl, parseOwnSlotsParam, readShowcaseParams, STONE_LETTER, type SlotCode } from "./quiz-link";
@@ -14,7 +14,8 @@ const A: GemQuizStoneCode = "amethyst";
 const C: GemQuizStoneCode = "citrine";
 const P: GemQuizStoneCode = "peridot";
 const B: GemQuizStoneCode = "blue_topaz";
-const ROWS = DESIGNS.filter((d) => d.layout.kind === "row");
+// แบบแถวหลายเม็ด (≥3) — เม็ดเดี่ยวมีข้อความ/ข้อห้ามต่างออกไป (Z13) ทดสอบแยกใน solitaire.test.ts
+const ROWS = DESIGNS.filter((d) => d.layout.kind === "row" && !isSingleStone(d));
 const L = (codes: GemQuizStoneCode[]) => codes.map((c) => STONE_LETTER[c]).join(".");
 
 describe("fitOwnToCount (A5)", () => {

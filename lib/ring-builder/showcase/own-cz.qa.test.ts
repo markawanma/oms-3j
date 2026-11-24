@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { GemQuizStoneCode } from "@/lib/gem-quiz/config";
 import { slotTints } from "../viewer/gem-colors";
 import { showcasePriceThb } from "./config";
-import { DESIGNS, ownSlotCount } from "./designs";
+import { DESIGNS, ownSlotCount, isSingleStone } from "./designs";
 import { buildShowcaseLineHref, buildShowcaseLineMessage } from "./line-message";
 import { fillAll, fitOwnToCount } from "./own-slots";
 import { buildShowcaseUrl, CZ_SLOT, parseOwnSlotsParam, readShowcaseParams, type SlotCode } from "./quiz-link";
@@ -12,7 +12,8 @@ import { describeOwnSlots } from "./sets";
 const G: GemQuizStoneCode = "garnet";
 const A: GemQuizStoneCode = "amethyst";
 const Z = CZ_SLOT;
-const ROWS = DESIGNS.filter((d) => d.layout.kind === "row");
+// แบบแถวหลายเม็ด (≥3) — เม็ดเดี่ยวมีข้อความ/ข้อห้ามต่างออกไป (Z13) ทดสอบแยกใน solitaire.test.ts
+const ROWS = DESIGNS.filter((d) => d.layout.kind === "row" && !isSingleStone(d));
 const cross = DESIGNS.find((d) => d.layout.kind !== "row")!;
 
 describe("QA: c fuzz — ไม่ throw, ไม่ผ่านค่าเพี้ยน, ไม่เขียนค่าดิบกลับ URL", () => {
@@ -53,7 +54,7 @@ describe("QA: c fuzz — ไม่ throw, ไม่ผ่านค่าเพ�
 });
 
 describe("QA: LINE เมทริกซ์ 6 แบบแถว × (CZ ล้วน · ผสม · ไม่มี CZ) × ไซซ์", () => {
-  it("มี 6 แบบแถว", () => expect(ROWS).toHaveLength(6));
+  it("มี 6 แบบแถวหลายเม็ด", () => expect(ROWS).toHaveLength(6));
   for (const d of ROWS) {
     const n = ownSlotCount(d);
     const patterns: Record<string, SlotCode[]> = {

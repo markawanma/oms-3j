@@ -13,7 +13,7 @@ import { SHOWCASE_PHOTOS } from "./_assets";
 // รูปจริงของทุกแบบทดสอบแยกที่ RingShowcase.photos.test.tsx (ไม่ mock)
 vi.mock("./_assets", async (orig) => {
   const m = await orig<typeof import("./_assets")>();
-  return { ...m, SHOWCASE_PHOTOS: { ...m.SHOWCASE_PHOTOS, trinity: [], scroll6: [], channel4: [], channel6: [], bar7: [], small7: [] } };
+  return { ...m, SHOWCASE_PHOTOS: { ...m.SHOWCASE_PHOTOS, trinity: [], scroll6: [], channel4: [], channel6: [], bar7: [], small7: [], solitaire: [] } };
 });
 import { formatPriceThb } from "@/lib/ring-builder/showcase/config";
 import { RingShowcaseClient } from "./RingShowcaseClient";

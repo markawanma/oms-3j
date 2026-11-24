@@ -126,7 +126,7 @@ function rowStoneCount(ring: unknown): number | null {
 
 /**
  * `c` ของแบบแถว (D1.2a) — รหัส 1 ตัวอักษร (gacpbz · z = CZ ขาว) ต่อเม็ด ซ้าย→ขวา คั่น `.` · ยาว = จำนวนเม็ดของแบบเป๊ะ
- * ข้อยกเว้นเดียว: ยาว 2 (ลิงก์ preview D1.2 · รหัสเต็มหรือตัวอักษร) → ขยาย เม็ดกลาง = ตัวแรก ที่เหลือ = ตัวที่สอง
+ * ข้อยกเว้นเดียว: ยาว 2 (ลิงก์ preview D1.2 · รหัสเต็มหรือตัวอักษร) → ขยาย (เฉพาะแบบ ≥ 3 เม็ด — เม็ดเดี่ยวไม่เคยมีลิงก์แบบนี้ · D1.3 Z14) เม็ดกลาง = ตัวแรก ที่เหลือ = ตัวที่สอง
  * ไขว้ / จำนวนอื่น / รหัสนอก whitelist / ตัวพิมพ์ใหญ่ / ยาวเกิน 64 / ไม่ใช่ string = null (ถือว่ายังไม่เลือก · ไม่ throw)
  */
 export function parseOwnSlotsParam(raw: unknown, ring: unknown): SlotCode[] | null {
@@ -142,7 +142,7 @@ export function parseOwnSlotsParam(raw: unknown, ring: unknown): SlotCode[] | nu
     }
     return out;
   }
-  if (parts.length === 2) {
+  if (parts.length === 2 && n >= 3) {
     const [a, b] = parts.map((p) => (isStoneCode(p) ? p : LETTER_STONE.get(p)));
     return a && b ? seedFromPair(n, a, b) : null;
   }

@@ -9,7 +9,7 @@ import { GEM_QUIZ_STONE_BY_CODE, type GemQuizStoneCode } from "@/lib/gem-quiz/co
 import { lineOaMessageUrl } from "@/lib/shop/line";
 import { CZ_WHITE, LINE_COPY } from "../config";
 import { SHOWCASE_COPY, formatPriceThb, leadTimeLabel } from "./config";
-import { findShowcaseDesign, ownSlotCount, roleMainLabel, roleSubLabel, type ShowcaseDesign, type ShowcaseDesignId } from "./designs";
+import { findShowcaseDesign, isSingleStone, ownSlotCount, roleMainLabel, roleSubLabel, type ShowcaseDesign, type ShowcaseDesignId } from "./designs";
 import { formatOwnSlots, isOwnSlots, ownSlotLines, slotLabel, type OwnSlotRow } from "./own-slots";
 import { isSlotCode, isStoneCode, type SlotCode } from "./quiz-link";
 
@@ -55,7 +55,8 @@ export function resolveChoice(choice: unknown, design?: ShowcaseDesign): Resolve
     // ต้องรู้แบบ: แถวเท่านั้น + จำนวนรหัสเท่าจำนวนเม็ด + ทุกรหัสใน whitelist · ไม่ครบ = null (ไม่ fallback · เหมือน Z5)
     if (!design || design.layout.kind !== "row" || !isOwnSlots(c.codes, ownSlotCount(design))) return null;
     const slotRows = formatOwnSlots(c.codes);
-    return slotRows ? { gemsLine: SHOWCASE_COPY.summaryOwnSlots, mainLabel: "", subLabel: "", slotRows } : null;
+    // เม็ดเดียวไม่มี "รายเม็ด · ซ้ายไปขวา" (Z13)
+    return slotRows ? { gemsLine: isSingleStone(design) ? SHOWCASE_COPY.summaryOwn : SHOWCASE_COPY.summaryOwnSlots, mainLabel: "", subLabel: "", slotRows } : null;
   }
   if (c.kind === "direct") {
     const label = c.unpicked === true ? SHOWCASE_COPY.gemNone : CZ_WHITE.name;
@@ -75,6 +76,7 @@ export function resolveChoice(choice: unknown, design?: ShowcaseDesign): Resolve
 }
 
 function stonesLine(design: ShowcaseDesign, r: ResolvedChoice): string {
+  if (isSingleStone(design)) return `${SHOWCASE_COPY.singleStoneLabel}: ${r.mainLabel}`; // ไม่มีพลอยเสริม/CZ เล็ก (Z13)
   const base = `${roleMainLabel(design)}: ${r.mainLabel} · ${roleSubLabel(design)}: ${r.subLabel}`;
   return design.extraCz > 0 ? `${base} · CZ เล็ก ${design.extraCz} เม็ด` : base;
 }

@@ -129,7 +129,10 @@ describe("state ข้ามโหมด", () => {
     for (const a of GEM_QUIZ_STONES) {
       await u.click(gemRow("พลอยหลัก (เม็ดบน)").getByRole("radio", { name: a.labelTh }));
       expect(lineMessage()).toContain(`ราคา ${formatPriceThb("bypass2")}`);
-      expect([...(container.textContent ?? "").matchAll(/(\d[\d,]*)\s*บาท/g)].map((m) => m[1]).every((p) => p === String(showcasePriceThb("bypass2")))).toBe(true);
+      // ตัดการ์ดเลือกแบบ (แสดงราคาทุกแบบโดยตั้งใจ · D1.3) ก่อนเทียบ
+      const picker = screen.getByRole("radiogroup", { name: "เลือกแบบแหวน" }).textContent ?? "";
+      const rest = (container.textContent ?? "").replace(picker, "");
+      expect([...rest.matchAll(/(\d[\d,]*)\s*บาท/g)].map((m) => m[1]).every((p) => p === String(showcasePriceThb("bypass2")))).toBe(true);
     }
   });
 });

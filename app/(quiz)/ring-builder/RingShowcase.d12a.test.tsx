@@ -255,7 +255,10 @@ describe("D1.2a — ต้องไม่พัง", () => {
     const u = user();
     await openOwn(u, "small7");
     await u.click(gem(1, "ซิทริน"));
-    const prices = document.body.textContent?.match(/\d[\d,]*\s*บาท/g) ?? [];
+    // การ์ดเลือกแบบแสดงราคาของทุกแบบ (D1.3) — ตัดออก แล้วที่เหลือต้องเป็นราคาของแบบที่เลือกค่าเดียว
+    const picker = screen.getByRole("radiogroup", { name: "เลือกแบบแหวน" }).textContent ?? "";
+    const prices = (document.body.textContent ?? "").replace(picker, "").match(/\d[\d,]*\s*บาท/g) ?? [];
+    expect(prices.length).toBeGreaterThan(0);
     expect(new Set(prices)).toEqual(new Set([formatPriceThb("small7")]));
   });
 });

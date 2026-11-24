@@ -4,7 +4,7 @@ import type { GemQuizStoneCode } from "@/lib/gem-quiz/config";
 import { CZ_WHITE } from "../config";
 import { CZ_TINT, czIconColors, slotTints, stoneTint } from "../viewer/gem-colors";
 import { showcasePriceThb, SHOWCASE_COPY } from "./config";
-import { DESIGNS, ownSlotCount } from "./designs";
+import { DESIGNS, ownSlotCount, isSingleStone } from "./designs";
 import { buildShowcaseLineMessage, resolveChoice } from "./line-message";
 import { fillAll, fitOwnToCount, formatOwnSlots, isAllCz, isOwnSlots, ownSlotLines, ownSlotsAria } from "./own-slots";
 import { buildShowcaseUrl, CZ_SLOT, parseOwnParam, parseOwnSlotsParam, readShowcaseParams, type SlotCode } from "./quiz-link";
@@ -13,7 +13,8 @@ import { describeOwnSlots } from "./sets";
 const G: GemQuizStoneCode = "garnet";
 const A: GemQuizStoneCode = "amethyst";
 const Z = CZ_SLOT;
-const ROWS = DESIGNS.filter((d) => d.layout.kind === "row");
+// แบบแถวหลายเม็ด (≥3) — เม็ดเดี่ยวมีข้อความ/ข้อห้ามต่างออกไป (Z13) ทดสอบแยกใน solitaire.test.ts
+const ROWS = DESIGNS.filter((d) => d.layout.kind === "row" && !isSingleStone(d));
 const row = (n: number) => ROWS.find((d) => ownSlotCount(d) === n)!;
 const rowOf = (n: number) => row(n).id;
 
