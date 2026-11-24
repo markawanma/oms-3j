@@ -21,12 +21,12 @@ beforeEach(() => {
 });
 
 const ASSETS = join(process.cwd(), "app", "(quiz)", "ring-builder", "_assets");
-const NEW_SIX: ShowcaseDesignId[] = ["trinity", "scroll6", "channel4", "channel6", "bar7", "small7"];
+const NEW_SEVEN: ShowcaseDesignId[] = ["trinity", "scroll6", "channel4", "channel6", "bar7", "small7", "solitaire"];
 
 describe("รูปจริงต่อแบบ", () => {
-  it("ทุกแบบมีรูป ≥1 · 6 แบบใหม่ 4 รูป/แบบ · ไขว้ 5 รูป", () => {
+  it("ทุกแบบมีรูป ≥1 · 7 แบบใหม่ (รวมเม็ดเดี่ยว) 4 รูป/แบบ · ไขว้ 5 รูป", () => {
     for (const d of DESIGNS) expect(SHOWCASE_PHOTOS[d.id].length).toBeGreaterThanOrEqual(1);
-    for (const id of NEW_SIX) expect(SHOWCASE_PHOTOS[id]).toHaveLength(4);
+    for (const id of NEW_SEVEN) expect(SHOWCASE_PHOTOS[id]).toHaveLength(4);
     expect(SHOWCASE_PHOTOS.bypass2).toHaveLength(5);
   });
   it("รูปของแบบหนึ่งไม่ปนแบบอื่น (src ไม่ซ้ำข้ามแบบ) + มีมิติ", () => {
@@ -41,12 +41,12 @@ describe("รูปจริงต่อแบบ", () => {
     }
   });
   it("ไฟล์อยู่ใน _assets ตามชื่อ <designId>-n.jpg · ไม่มีรูปใน public/ring-builder · ขนาด ≤ 60KB/รูป", () => {
-    for (const id of NEW_SIX) for (let n = 1; n <= 4; n++) {
+    for (const id of NEW_SEVEN) for (let n = 1; n <= 4; n++) {
       const f = join(ASSETS, `${id}-${n}.jpg`);
       expect(existsSync(f), f).toBe(true);
       expect(statSync(f).size).toBeLessThan(60 * 1024);
     }
-    expect(readdirSync(ASSETS).filter((f) => f.endsWith(".jpg"))).toHaveLength(29);
+    expect(readdirSync(ASSETS).filter((f) => f.endsWith(".jpg"))).toHaveLength(33); // ไขว้ 5 + อีก 7 แบบ x 4
     expect(existsSync(join(process.cwd(), "public", "ring-builder"))).toBe(false);
   });
   it("alt: ไขว้มีชื่อมุม · แบบอื่นใช้ 'ภาพถ่ายจริง <ชื่อแบบ> รูปที่ n' ไม่แต่งมุม", () => {
