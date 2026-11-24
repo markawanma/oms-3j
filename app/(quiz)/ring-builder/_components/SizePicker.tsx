@@ -35,7 +35,7 @@ export function SizePicker({
 
   return (
     <div className="flex flex-col gap-3">
-      <h2 id={headingId} className="font-quiz-serif text-xl font-semibold text-[var(--gq-burgundy-dark)]">
+      <h2 id={headingId} data-jump="size" tabIndex={-1} className="font-quiz-serif text-xl font-semibold text-[var(--gq-burgundy-dark)] focus:outline-none">
         {SHOWCASE_COPY.sizeHeading} <span className="text-base font-normal text-[var(--gq-text-muted)]">({SHOWCASE_COPY.sizeRange(min, max)})</span>
       </h2>
       <div role="radiogroup" aria-labelledby={headingId} className="grid grid-cols-6 gap-2">

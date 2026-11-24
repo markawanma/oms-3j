@@ -4,17 +4,20 @@
 // 4 state ตาม UX §4/§5/§6: checking/loading (รูปเบลอ หรือ pictogram จาง + "กำลังโหลด…") · ready (canvas) · unsupported · lost (กู้คืนได้เอง) + designFailed (โมเดลของแบบนี้สร้างไม่ได้ → ปุ่ม "ลองอีกครั้ง")
 // 🔴 D1.2 (Z6): รูปถ่ายแสดงเฉพาะแบบที่มีรูปจริงของแบบนั้น — photo เป็น optional · ไม่มีรูป = pictogram + ป้าย "ไม่ใช่ภาพจริง" ห้ามเอารูปแบบอื่นแทนในทุก state
 // สลับแบบ = viewer.setRing() บน context เดิม (sync · ไม่มีช่วงรอให้เห็น) จึงไม่มี state "กำลังโหลดแบบ …" — เฟรมเก่าไม่ค้าง (design §2 Bundle)
-import { useEffect, useState, type ComponentType } from "react";
+import { useCallback, useEffect, useState, type ComponentType } from "react";
 import type { GemQuizStoneCode } from "@/lib/gem-quiz/config";
 import type { SlotCode } from "@/lib/ring-builder/showcase/quiz-link";
 import { SHOWCASE_COPY } from "@/lib/ring-builder/showcase/config";
 import type { ShowcaseDesign, ShowcaseDesignId } from "@/lib/ring-builder/showcase/designs";
-import { isWebGLAvailable } from "@/lib/ring-builder/viewer/gl-renderer";
+import { isWebGLAvailable, type CaptureFrontFn } from "@/lib/ring-builder/viewer/gl-renderer";
 import type { RingViewerProps } from "./RingViewer";
 import type { ShowcasePhoto } from "../_assets";
 import { DesignPictogram } from "./DesignPictogram";
 
 type StageMode = "checking" | "loading" | "ready" | "unsupported" | "lost";
+
+/** สถานะที่ผู้ใช้ภายนอกต้องรู้ (ปุ่ม "บันทึกรูป"): ready = จับภาพได้ · waiting = ชั่วคราว (checking/loading/lost/designFailed) · unsupported = ถาวร (ไม่มี WebGL/โหลด chunk ไม่ได้) */
+export type StageCaptureStatus = "waiting" | "ready" | "unsupported";
 
 export function RingStage({
   design,
@@ -24,6 +27,8 @@ export function RingStage({
   ariaLabel,
   photo,
   photoAlt,
+  onCaptureReady,
+  onStageStatus,
 }: {
   design: ShowcaseDesign;
   top: GemQuizStoneCode | null;
@@ -34,6 +39,9 @@ export function RingStage({
   /** รูปจริงของแบบนี้ (undefined = ยังไม่มีรูปถ่ายจริง) */
   photo?: ShowcasePhoto;
   photoAlt: string;
+  /** ฟังก์ชันจับภาพมุมหน้า — มีค่าเฉพาะเมื่อเวที ready (ไม่ใช่ designFailed) · null ทุกกรณีอื่น · callback ควรคงที่ (useCallback) */
+  onCaptureReady?: (capture: CaptureFrontFn | null) => void;
+  onStageStatus?: (status: StageCaptureStatus) => void;
 }) {
   const [mode, setMode] = useState<StageMode>("checking");
   const [Viewer, setViewer] = useState<ComponentType<RingViewerProps> | null>(null);
@@ -42,6 +50,9 @@ export function RingStage({
   const [attempt, setAttempt] = useState(0);
   // drag hint: แสดงครั้งเดียวต่อการโหลดหน้า (state นี้อยู่ที่ stage ซึ่งไม่ remount ตอนเปลี่ยนแบบ · ไม่ใช้ storage) · true = เล่นจบ/ผู้ใช้แตะแล้ว
   const [hintDone, setHintDone] = useState(false);
+  // ฟังก์ชันจับภาพจาก viewer (เก็บเป็น object เพราะ setState ของ function = updater)
+  const [captureHandle, setCaptureHandle] = useState<{ fn: CaptureFrontFn } | null>(null);
+  const handleViewerCapture = useCallback((fn: CaptureFrontFn | null) => setCaptureHandle(fn ? { fn } : null), []);
 
   useEffect(() => {
     let cancelled = false;
@@ -72,6 +83,14 @@ export function RingStage({
   }, [design.id, failedDesign]);
 
   const designFailed = failedDesign === design.id;
+  const captureStatus: StageCaptureStatus = mode === "unsupported" ? "unsupported" : mode === "ready" && !designFailed ? "ready" : "waiting";
+  const captureFn = captureStatus === "ready" ? (captureHandle?.fn ?? null) : null;
+  useEffect(() => {
+    onStageStatus?.(captureStatus);
+  }, [captureStatus, onStageStatus]);
+  useEffect(() => {
+    onCaptureReady?.(captureFn);
+  }, [captureFn, onCaptureReady]);
   // reduced-motion: ไม่แสดงจุดเลย (จุดนิ่งๆ ไม่สื่อว่า "ลากได้" และดูเหมือนฝุ่นบนภาพ · ป้าย "ลากเพื่อหมุน" ยังอยู่) — อ่านตอน render หลัง ready เท่านั้น (client-only ไม่กระทบ hydration)
   const hintVisible =
     mode === "ready" && !designFailed && !hintDone && !(typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches);
@@ -119,6 +138,7 @@ export function RingStage({
           onReady={() => setMode("ready")}
           onUnsupported={(reason) => setMode(reason === "context_lost" ? "lost" : "unsupported")}
           onDesignFailed={(id) => setFailedDesign(id)}
+          onCaptureReady={handleViewerCapture}
         />
       )}
 
