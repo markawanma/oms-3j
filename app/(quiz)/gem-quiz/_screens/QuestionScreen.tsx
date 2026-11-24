@@ -31,6 +31,7 @@ export function QuestionScreen({
   onSelect,
   onNext,
   onBack,
+  hubDirty = false,
   current,
   total,
 }: {
@@ -41,6 +42,8 @@ export function QuestionScreen({
   onSelect: (code: string) => void;
   onNext: () => void;
   onBack: () => void;
+  /** มีคำตอบ ≥ 2 → กด "เครื่องมือ 3J" แล้วถามก่อนออก */
+  hubDirty?: boolean;
   current: number;
   total: number;
 }) {
@@ -55,7 +58,7 @@ export function QuestionScreen({
 
   return (
     <div className="motion-safe:animate-gq-fade-up flex min-h-screen flex-col sm:min-h-0">
-      <QuizHeader current={current} total={total} onBack={onBack} />
+      <QuizHeader current={current} total={total} onBack={onBack} hubDirty={hubDirty} />
 
       <div className="flex-1 px-5 py-6">
         <div className="flex flex-col gap-1.5 text-center">

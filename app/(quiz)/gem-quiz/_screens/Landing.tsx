@@ -14,12 +14,16 @@ const BLUE_TOPAZ = GEM_QUIZ_STONE_BY_CODE.blue_topaz;
 
 export function Landing({ onStart }: { onStart: () => void }) {
   return (
-    <div className="flex min-h-screen flex-col items-center px-6 pb-7 pt-11 text-center sm:min-h-[700px]">
+    <div className="flex min-h-screen flex-col items-center px-6 pb-7 pt-3 text-center sm:min-h-[700px]">
+      {/* ขั้นแรกของ flow ไม่มีขั้นให้ถอย → ซ้ายบนเป็นลิงก์ hub (ux-tools-navigation §2.1 · ย้ายมาจากใต้ปุ่มเริ่ม) · <a href> ล้วน ไม่ผ่าน history */}
+      <div className="-ml-2 flex w-full justify-start">
+        <ToolsHubLink variant="text" />
+      </div>
       {/* เจ้าของสั่ง 5 ต.ค. 69: ใช้โลโก้จริง (components/brand/Logo.tsx — ใช้
           ที่เดียวกับใบเสร็จ/ใบเสนอราคา OEM) แทนไอคอนวาดมือ+ตัวหนังสือของ mockup
           ต้นฉบับ (circle+star SVG) ซึ่งเป็น placeholder ตามที่ CLAUDE.md ของ
           แพ็กเกจระบุไว้แต่แรกว่าต้องเปลี่ยน */}
-      <div className="motion-safe:animate-gq-fade-up flex flex-col items-center">
+      <div className="motion-safe:animate-gq-fade-up mt-6 flex flex-col items-center">
         <Logo className="h-12" />
       </div>
 
@@ -92,8 +96,6 @@ export function Landing({ onStart }: { onStart: () => void }) {
       <PrimaryButton onClick={onStart} trailingArrow>
         เริ่มทำแบบทดสอบ
       </PrimaryButton>
-      {/* P3: ทางกลับหน้ารวมเครื่องมือ — เฉพาะ landing (ยังไม่มีคำตอบให้เสีย) · Q1–Q5/ผล ไม่มี */}
-      <ToolsHubLink variant="text" className="mt-2" />
       <p className="mt-4 font-quiz-display text-base italic text-[var(--gq-burgundy)]">Your Gem. Your Intention. Your Day.</p>
     </div>
   );

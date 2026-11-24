@@ -79,6 +79,7 @@ async function completeQuizToResult(
 describe("GemQuizClient", () => {
   beforeEach(() => {
     window.localStorage.clear();
+    window.history.replaceState(null, ""); // history.state ค้างข้ามเทสต์ได้ (ทุกจอ = 1 entry) — เริ่มสะอาดทุกเคส
     vi.restoreAllMocks();
   });
 
@@ -106,7 +107,8 @@ describe("GemQuizClient", () => {
     renderQuiz();
     await user.click(screen.getByRole("button", { name: "เริ่มทำแบบทดสอบ" }));
     await user.click(screen.getByRole("button", { name: "ย้อนกลับ" }));
-    expect(screen.getByRole("heading", { name: /DAILY/ })).toBeInTheDocument();
+    // ทุกจอ = history entry → ปุ่มถอยเรียก history.back() (popstate มาแบบ async)
+    expect(await screen.findByRole("heading", { name: /DAILY/ })).toBeInTheDocument();
   });
 
   it(`Q4 เลือกพลอยที่ชอบได้ไม่เกิน ${MAX_LIKED_STONES} ตัว — ตัวถัดไปถูก disable ทันที`, async () => {
@@ -474,35 +476,32 @@ describe("GemQuizClient", () => {
     expect(screen.getByRole("button", { name: "เริ่มทำแบบทดสอบ" })).toBeEnabled();
   });
 
-  it("ไม่มี history.pushState ระหว่างเปลี่ยนคำถาม — ปุ่มย้อนกลับของเบราว์เซอร์จะไม่ย้อนคำถามในแอป (behavior ที่ยังไม่ implement ตาม design doc O9 ไม่บล็อก prod) — ยืนยันว่าไม่ throw/ไม่พังถ้ามี popstate ลอยมาเฉยๆ ระหว่างทำแบบทดสอบ",
-    async () => {
-      const pushStateSpy = vi.spyOn(window.history, "pushState");
-      const user = userEvent.setup();
-      renderQuiz();
-      await user.click(screen.getByRole("button", { name: "เริ่มทำแบบทดสอบ" }));
-      await user.click(screen.getByRole("button", { name: optionLabel("birth_day", "sun") }));
-      await user.click(screen.getByRole("button", { name: "ถัดไป" }));
-
-      // ยืนยันข้อสังเกต: โค้ดปัจจุบันไม่เรียก pushState เลย -> ไม่มี history entry ต่อคำถาม
-      expect(pushStateSpy).not.toHaveBeenCalled();
-
-      // จำลอง popstate ลอยมา (เช่นผู้ใช้กดย้อนกลับเบราว์เซอร์จริง) — ต้องไม่ throw/ไม่พังหน้า
-      expect(() => window.dispatchEvent(new PopStateEvent("popstate"))).not.toThrow();
-      expect(screen.getByRole("heading", { name: question("intention").labelTh })).toBeInTheDocument();
-    }
-  );
+  // เดิมเทสต์นี้ล็อกว่า "ไม่มี pushState" (O9 ยังไม่ implement) — มติเจ้าของ 24 พ.ย. 69 กลับกฎ: ทุกจอ = 1 entry (รายละเอียดที่ GemQuizClient.nav.test.tsx)
+  // ที่เหลือไว้ตรงนี้: popstate ลอยมาเฉยๆ (ไม่มี state ที่รู้จัก) ต้องไม่ throw — และตกที่ Landing ไม่ค้างจอว่าง
+  it("popstate ลอยมาโดยไม่มี state ของ quiz ระหว่างทำแบบทดสอบ — ไม่ throw · กลับ Landing (ไม่ค้างจอว่าง)", async () => {
+    const user = userEvent.setup();
+    renderQuiz();
+    await user.click(screen.getByRole("button", { name: "เริ่มทำแบบทดสอบ" }));
+    await user.click(screen.getByRole("button", { name: optionLabel("birth_day", "sun") }));
+    await user.click(screen.getByRole("button", { name: "ถัดไป" }));
+    expect(() => window.dispatchEvent(new PopStateEvent("popstate"))).not.toThrow();
+    expect(await screen.findByRole("heading", { name: /DAILY/ })).toBeInTheDocument();
+  });
 
   it("Accessibility: Tab ไล่ทีละปุ่มได้ครบ Landing -> Q1 โดยไม่ใช้เมาส์เลย และกด Enter ทำงานเหมือนคลิก", async () => {
     const user = userEvent.setup();
     renderQuiz();
 
-    await user.tab(); // honeypot (tabIndex=-1 ต้องถูกข้าม) -> ปุ่มเริ่มทำแบบทดสอบ
+    await user.tab(); // honeypot (tabIndex=-1 ต้องถูกข้าม) -> ลิงก์ "← เครื่องมือ 3J" (ซ้ายบนมาก่อนในลำดับภาพ)
+    expect(screen.getByRole("link", { name: /เครื่องมือ 3J/ })).toHaveFocus();
+    await user.tab(); // -> ปุ่มเริ่มทำแบบทดสอบ
     expect(screen.getByRole("button", { name: "เริ่มทำแบบทดสอบ" })).toHaveFocus();
     await user.keyboard("{Enter}");
     expect(screen.getByRole("heading", { name: question("birth_day").labelTh })).toBeInTheDocument();
 
     // ไล่ Tab จนถึงตัวเลือกแรกของ Q1 แล้วกด Space เพื่อเลือก (ปุ่มตัวแรกของจอคือ "ย้อนกลับ")
-    await user.tab(); // ปุ่มย้อนกลับ (header)
+    await user.tab(); // ปุ่มย้อนกลับ (header · ซ้าย)
+    await user.tab(); // ลิงก์ "เครื่องมือ 3J" (header · ขวา)
     await user.tab(); // ตัวเลือกวันเกิดตัวแรก (sun)
     const firstOption = screen.getByRole("button", { name: optionLabel("birth_day", "sun") });
     expect(firstOption).toHaveFocus();

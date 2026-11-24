@@ -12,7 +12,8 @@ import { RING_APP_DIR, RING_LIB_DIR, ROOT, listSources, readStripped, rel } from
 const CAMERA_RE = /getUserMedia|mediaDevices|capture\s*=|type\s*=\s*["']file["']|BarcodeDetector/;
 const EXTS = ["", ".ts", ".tsx", ".js", ".mjs", "/index.ts", "/index.tsx"];
 const IMPORT_RE = /(?:import|export)\s[^;]*?from\s+["']([^"']+)["']|import\s+["']([^"']+)["']|import\(\s*["']([^"']+)["']\s*\)/g;
-const ALLOWED_PACKAGES = new Set(["react", "next", "next/font/local", "react/jsx-runtime"]);
+// react-dom: createPortal ของ LeaveSheet (24 พ.ย. 69 — ถามก่อนออกไป hub) · ไม่ใช่แพ็กเกจนอกตระกูล react/next
+const ALLOWED_PACKAGES = new Set(["react", "react-dom", "next", "next/font/local", "react/jsx-runtime"]);
 
 function resolveLocal(from: string, spec: string): string | null {
   let base: string;
@@ -84,7 +85,17 @@ describe("A8: ไม่มีโค้ดเรียกกล้องใน ri
   });
 
   // P3 (18 พ.ย. 69): ลิงก์กลับหน้ารวมเครื่องมือ + ค่าคงที่ origin/HUB_URL — 3 ไฟล์ pure ไม่มี state/env/กล้อง (รายชื่อแคบ ไม่ใช่ prefix)
-  const EXTRA_ALLOWED = new Set(["lib/shop/line.ts", "app/(quiz)/_components/ToolsHubLink.tsx", "lib/site/hosts.ts"]);
+  // 24 พ.ย. 69 (ปุ่ม hub ทุกจอ): + ToolsHubExit/LeaveSheet (ถามก่อนออก — ไม่มี network/storage/กล้อง) · + ค่า SHOWCASE_PATH ของปุ่ม "ดูแหวนด้วยเบอร์ N"
+  //   จาก lib/ring-builder/showcase/config.ts (+ designs.ts ที่ config import — ข้อมูลล้วน ไม่มี import อื่น) · รายชื่อแคบ ไม่ใช่ prefix
+  const EXTRA_ALLOWED = new Set([
+    "lib/shop/line.ts",
+    "app/(quiz)/_components/ToolsHubLink.tsx",
+    "app/(quiz)/_components/ToolsHubExit.tsx",
+    "app/(quiz)/_components/LeaveSheet.tsx",
+    "lib/site/hosts.ts",
+    "lib/ring-builder/showcase/config.ts",
+    "lib/ring-builder/showcase/designs.ts",
+  ]);
   it("graph ของหน้าไม่ลากไฟล์นอกขอบเขต (ต้องเป็น app/(quiz)/ring-size · lib/ring-size · lib/shop/line.ts · ToolsHubLink · lib/site/hosts.ts เท่านั้น)", () => {
     const { files } = walkGraph([join(RING_APP_DIR, "page.tsx"), join(RING_APP_DIR, "layout.tsx"), join(RING_APP_DIR, "RingSizeClient.tsx")]);
     const outside = files

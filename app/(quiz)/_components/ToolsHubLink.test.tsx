@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
-// P3 (18 พ.ย. 69) — ทางกลับหน้ารวมเครื่องมือ: component + ตำแหน่งวางตาม ux-tools-hub §4
-//  วาง: ring-builder · quiz landing · ring-size หน้าแรก (R0) + หน้าผล (R6 — qa-gaps.test.tsx ตรวจครบ 1 ลิงก์)
-//  ห้ามวาง: ระหว่างทำ quiz (Q1–Q5) · ระหว่างวัดไซซ์ (R1Pick ขึ้นไป)
+// P3 (18 พ.ย. 69) — ทางกลับหน้ารวมเครื่องมือ: component + ตำแหน่งวาง
+// 24 พ.ย. 69: มติเจ้าของเขียนทับ ux-tools-hub §4 ("ห้ามวางกลางทาง") — วางได้ทุกจอ · ซ้ายบนที่ขั้นแรก (landing/R0) · ขวาบน "เครื่องมือ 3J" ที่จออื่น
+//  จอที่มีงานค้างถามก่อนออก (ToolsHubExit.test.tsx · ring-size/_tests/nav-hub.test.tsx · gem-quiz/GemQuizClient.nav.test.tsx)
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { cleanup, render, screen } from "@testing-library/react";
@@ -41,6 +41,22 @@ describe("ToolsHubLink", () => {
     expect(a.className).toMatch(/min-h-11/);
     expect(a.querySelector("span[aria-hidden='true']")?.textContent).toBe("←"); // ลูกศรไม่ถูกอ่านซ้ำ
   });
+  it("nav: <a href='/'> · aria-label 'กลับหน้าเครื่องมือ 3J' · ข้อความ 'เครื่องมือ 3J' · ไอคอนบ้านซ่อนจาก screen reader · ≥ 44×44 · ไม่ target (N2/N3)", () => {
+    render(<ToolsHubLink variant="nav" />);
+    const a = screen.getByRole("link", { name: "กลับหน้าเครื่องมือ 3J" });
+    expect(a).toHaveAttribute("href", "/");
+    expect(a).not.toHaveAttribute("target");
+    expect(a.textContent).toBe("เครื่องมือ 3J");
+    expect(a.className).toMatch(/min-h-11/);
+    expect(a.className).toMatch(/min-w-11/);
+    expect(a.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
+  });
+  it("back: ข้อความ '← กลับหน้าเครื่องมือ' ท้ายหน้าจบ · ≥ 44px", () => {
+    render(<ToolsHubLink variant="back" />);
+    const a = screen.getByRole("link", { name: /กลับหน้าเครื่องมือ/ });
+    expect(a).toHaveAttribute("href", "/");
+    expect(a.className).toMatch(/min-h-11/);
+  });
   it("mark: ห่อ children · aria-label ชัด · target ≥ 44×44", () => {
     render(
       <ToolsHubLink variant="mark">
@@ -67,23 +83,30 @@ describe("ตำแหน่งวาง", () => {
     expect(screen.getByRole("link", { name: /เครื่องมือ 3J/ })).toBeInTheDocument();
   });
 
-  it("/gem-quiz: landing มีลิงก์ · ขึ้นคำถามแรกแล้วไม่มี (กันกดพลาดทิ้งคำตอบ)", async () => {
+  it("/gem-quiz: landing = ลิงก์ข้อความซ้ายบน ('← เครื่องมือ 3J') · ขึ้นคำถามแรกแล้ว = ลิงก์ nav ขวาบน (ตัวเดียวทุกจอ)", async () => {
     const u = userEvent.setup();
     const { container } = render(<GemQuizClient token="t" />);
-    expect(hubLinks(container)).toHaveLength(1);
+    const first = hubLinks(container);
+    expect(first).toHaveLength(1);
+    expect(first[0].textContent).toBe("←เครื่องมือ 3J");
     await u.click(screen.getByRole("button", { name: "เริ่มทำแบบทดสอบ" }));
-    expect(hubLinks(container)).toHaveLength(0);
-    expect(screen.queryByRole("link", { name: /เครื่องมือ 3J/ })).toBeNull();
+    const q1 = hubLinks(container);
+    expect(q1).toHaveLength(1);
+    expect(q1[0]).toHaveAttribute("aria-label", "กลับหน้าเครื่องมือ 3J");
+    expect(q1[0].textContent).toBe("เครื่องมือ 3J");
   });
 
-  it("/ring-size: หน้าแรกมีลิงก์ (โลโก้) · เริ่มวัดแล้วไม่มี", async () => {
+  it("/ring-size: หน้าแรก = ลิงก์ข้อความซ้ายบน (โลโก้เป็นรูปเฉยๆ ไม่ใช่ลิงก์) · เริ่มวัดแล้ว = ลิงก์ nav ขวาบน", async () => {
     const u = userEvent.setup();
     const { container } = render(<RingSizeClient />);
     const links = hubLinks(container);
     expect(links).toHaveLength(1);
-    expect(links[0]).toHaveAttribute("aria-label", "กลับหน้าเครื่องมือ 3J");
-    expect(links[0].querySelector("img")).toHaveAttribute("src", "/3j-logo.png");
+    expect(links[0].textContent).toBe("←เครื่องมือ 3J");
+    expect(links[0].querySelector("img")).toBeNull();
+    expect(container.querySelector("img[src='/3j-logo.png']")?.closest("a")).toBeNull();
     await u.click(screen.getByRole("button", { name: "เริ่มวัดไซส์" }));
-    expect(hubLinks(container)).toHaveLength(0);
+    const r1pick = hubLinks(container);
+    expect(r1pick).toHaveLength(1);
+    expect(r1pick[0]).toHaveAttribute("aria-label", "กลับหน้าเครื่องมือ 3J");
   });
 });

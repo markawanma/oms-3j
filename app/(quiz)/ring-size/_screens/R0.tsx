@@ -27,11 +27,12 @@ export function R0({ loaded, lastResultSize, calibrated, onStart, onViewLastResu
   return (
     <div className="flex flex-1 flex-col">
       <div className="flex flex-col px-[22px] pb-6 pt-7">
-        {/* โลโก้หน้าแรกกดกลับหน้ารวมเครื่องมือได้ (P3 · ยังไม่เริ่มวัด = ไม่มีงานให้เสีย) */}
-        <ToolsHubLink variant="mark" className="self-center">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/3j-logo.png" alt={COPY.common.logoAlt} className="h-[62px] w-auto" />
-        </ToolsHubLink>
+        {/* ขั้นแรกของ flow ไม่มีขั้นให้ถอย → ซ้ายบนเป็นลิงก์ hub แบบข้อความ (ux-tools-navigation §2.1 · มติ 24 พ.ย. 69 · ยังไม่เริ่มวัด = ไม่มีงานให้เสีย) · โลโก้กลับเป็นรูปเฉยๆ */}
+        <div className="-mt-3 mb-1 flex justify-start">
+          <ToolsHubLink variant="text" />
+        </div>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/3j-logo.png" alt={COPY.common.logoAlt} className="h-[62px] w-auto self-center" />
 
         <div className="mb-1.5 mt-[26px] flex justify-center [@media(max-height:719px)]:hidden" aria-hidden="true">
           <RingHero />

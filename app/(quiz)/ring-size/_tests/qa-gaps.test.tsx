@@ -320,10 +320,11 @@ describe("R6 ปุ่มเกมพลอย + ปุ่มรอง: ไม�
     await u.click(btn("ใช้ค่านี้"));
     const hrefs = Array.from(document.querySelectorAll("a[href]")).map((a) => a.getAttribute("href")!);
     expect(hrefs.length).toBeGreaterThan(0);
-    expect(hrefs.filter((h) => h === "/")).toHaveLength(1);
+    // มติ 24 พ.ย. 69: "/" = ปุ่ม "เครื่องมือ 3J" ขวาบน + ลิงก์ "กลับหน้าเครื่องมือ" ท้ายหน้า (2 ตัว) · "/ring-builder" = ปุ่ม "ดูแหวนด้วยเบอร์ N" (เปล่าๆ ไม่มี query — N11)
+    expect(hrefs.filter((h) => h === "/")).toHaveLength(2);
+    expect(hrefs.filter((h) => h === "/ring-builder")).toHaveLength(1);
     for (const h of hrefs) {
-      // P3: "/" = มาร์ก 3J ขวาบนกดกลับหน้ารวมเครื่องมือ (หน้าผลเท่านั้น · ตัวเดียว)
-      expect(["/", "/gem-quiz", "https://lin.ee/PzIJl6j"], h).toContain(h);
+      expect(["/", "/gem-quiz", "/ring-builder", "https://lin.ee/PzIJl6j"], h).toContain(h);
     }
     // within ไว้ให้ lint ไม่บ่น: ตรวจว่าปุ่ม LINE สำรองมีจริง
     expect(within(document.body).getByText("เปิดแชท LINE")).toBeInTheDocument();

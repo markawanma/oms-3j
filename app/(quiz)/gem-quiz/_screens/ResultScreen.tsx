@@ -10,6 +10,7 @@
 // (ของเดิมเป็น placeholder ผิดร้าน ไม่ใช่ความตั้งใจ) · ค่าอยู่ที่เดียว lib/shop/line.ts.
 import { GemIcon } from "../_components/GemIcon";
 import { PrimaryButton } from "../_components/PrimaryButton";
+import { ToolsHubLink } from "../../_components/ToolsHubLink";
 import { GEM_QUIZ_STONE_BY_CODE, type GemQuizStoneCode } from "@/lib/gem-quiz/config";
 import type { GemQuizResultView } from "@/lib/gem-quiz/result";
 import { LINE_OA_URL } from "@/lib/shop/line";
@@ -38,11 +39,14 @@ export function ResultScreen({
   onFocusAlternative,
   onBackToTop,
   onRestart,
+  onBack,
 }: {
   view: GemQuizResultView;
   onFocusAlternative: (code: string) => void;
   onBackToTop: () => void;
   onRestart: () => void;
+  /** ซ้ายบน = ถอยไป Q5 แก้คำตอบได้ (แทนไอคอน "เริ่มใหม่" เดิม — มติเจ้าของ 24 พ.ย. 69 Q3) */
+  onBack: () => void;
 }) {
   const heroStone = getStone(view.hero.stoneCode);
   const pairA = getStone(view.pairing.heroStoneCode);
@@ -52,20 +56,22 @@ export function ResultScreen({
     <div className="min-h-screen sm:min-h-0">
       {/* Hero */}
       <div className="motion-safe:animate-gq-fade-up flex flex-col items-center px-6 pb-[30px] pt-7 text-center" style={{ background: "var(--gq-ivory)" }}>
-        <div className="flex w-full items-center justify-between">
+        {/* ซ้าย = ถอยหนึ่งขั้น (→ Q5) · ขวา = ออก hub · ผลไม่ถือเป็นงานค้าง (ผู้ใช้เห็นผลแล้ว) → ไม่ถามยืนยัน */}
+        <div className="grid w-full grid-cols-[1fr_auto_1fr] items-center">
           <button
             type="button"
-            aria-label="เริ่มใหม่"
-            onClick={onRestart}
-            className="-ml-2.5 flex h-11 w-11 items-center justify-center rounded-full text-[var(--gq-text)] transition-colors hover:bg-white"
+            aria-label="ย้อนกลับ"
+            onClick={onBack}
+            className="-ml-2.5 flex h-11 w-11 items-center justify-center justify-self-start rounded-full text-[var(--gq-text)] transition-colors hover:bg-white"
           >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M4 12a8 8 0 1 0 2.4-5.7" />
-              <path d="M4 4.5v4h4" />
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M19 12H5M11 6l-6 6 6 6" />
             </svg>
           </button>
           <span className="pl-[0.4em] font-quiz-display text-[13px] font-semibold tracking-[0.4em] text-[var(--gq-burgundy-dark)]">3J · JEWELRY</span>
-          <span className="w-11" aria-hidden="true" />
+          <div className="-mr-2 justify-self-end">
+            <ToolsHubLink variant="nav" />
+          </div>
         </div>
 
         <p className="mt-3.5 font-quiz-display text-[32px] font-medium leading-[1.02] tracking-[0.06em] text-[var(--gq-burgundy-dark)]">
@@ -345,6 +351,10 @@ export function ResultScreen({
         <PrimaryButton variant="secondary" onClick={onRestart}>
           ทำแบบทดสอบใหม่
         </PrimaryButton>
+        {/* ท้ายหน้ายาว — อ่านจบแล้วต้องไม่ต้องเลื่อนขึ้นไปหาปุ่มบน */}
+        <div className="flex justify-center">
+          <ToolsHubLink variant="back" />
+        </div>
         <div className="mt-2 border-t border-[var(--gq-divider)] pt-4">
           <p className="text-xs leading-[1.65] text-[var(--gq-text-faint)]">
             <strong className="font-semibold">ข้อควรทราบ:</strong> {view.disclaimer}
