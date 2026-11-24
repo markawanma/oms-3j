@@ -373,3 +373,6 @@ export const GEM_QUIZ_DISCLAIMER =
  * 4 key บังคับ (birth_day/intention/feeling/jewelry_type) — validate.ts บังคับ
  * ว่าต้องมีครบทุก key ที่ GEM_QUIZ_QUESTIONS ต้องการ. */
 export type GemQuizAnswers = Record<string, string>;
+
+/** ข้อความใน LeaveSheet ตอนกด "เครื่องมือ 3J" กลาง quiz (Q3–Q5 · ≥ 2 คำตอบ) — ux-tools-navigation §5.1 · ไม่มีเลขราคา */
+export const GEM_QUIZ_LEAVE_BODY = "คำตอบที่เลือกไว้จะหายไป";
