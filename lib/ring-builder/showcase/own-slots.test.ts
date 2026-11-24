@@ -2,8 +2,8 @@
 import { describe, expect, it } from "vitest";
 import { GEM_QUIZ_STONE_CODES, type GemQuizStoneCode } from "@/lib/gem-quiz/config";
 import { CZ_TINT, slotTints, stoneTint } from "../viewer/gem-colors";
-import { SHOWCASE_PRICE_THB } from "./config";
-import { DESIGNS, SHOWCASE_DESIGN_IDS, getShowcaseDesign, ownSlotCount, type ShowcaseDesignId } from "./designs";
+import { showcasePriceThb } from "./config";
+import { DESIGNS, SHOWCASE_DESIGN_IDS, getShowcaseDesign, ownSlotCount, isSingleStone, type ShowcaseDesignId } from "./designs";
 import { buildShowcaseLineMessage, resolveChoice } from "./line-message";
 import { fillAll, fitOwnToCount, formatOwnSlots, isOwnSlots, ownSlotLines } from "./own-slots";
 import { buildShowcaseUrl, parseOwnSlotsParam, readShowcaseParams, STONE_LETTER, type SlotCode } from "./quiz-link";
@@ -14,7 +14,8 @@ const A: GemQuizStoneCode = "amethyst";
 const C: GemQuizStoneCode = "citrine";
 const P: GemQuizStoneCode = "peridot";
 const B: GemQuizStoneCode = "blue_topaz";
-const ROWS = DESIGNS.filter((d) => d.layout.kind === "row");
+// แบบแถวหลายเม็ด (≥3) — เม็ดเดี่ยวมีข้อความ/ข้อห้ามต่างออกไป (Z13) ทดสอบแยกใน solitaire.test.ts
+const ROWS = DESIGNS.filter((d) => d.layout.kind === "row" && !isSingleStone(d));
 const L = (codes: GemQuizStoneCode[]) => codes.map((c) => STONE_LETTER[c]).join(".");
 
 describe("fitOwnToCount (A5)", () => {
@@ -132,13 +133,13 @@ describe("LINE ownSlots — ทุกแบบแถว × รูปแบบส
     Array.from({ length: n }, (_, i) => GEM_QUIZ_STONE_CODES[i % 5]),
     Array.from({ length: n }, (_, i) => (i % 2 ? A : C)),
   ];
-  it("ราคา 890 ตัวเดียว · ไม่มีหลัก/เสริม/ชุด n/เพชร · ไม่มีราคาต่อเม็ด · ส่วนรายเม็ดตรงกับ formatOwnSlots", () => {
+  it("ราคาของแบบตัวเดียว · ไม่มีหลัก/เสริม/ชุด n/เพชร · ไม่มีราคาต่อเม็ด · ส่วนรายเม็ดตรงกับ formatOwnSlots", () => {
     for (const d of ROWS) {
       for (const codes of patterns(ownSlotCount(d))) {
         const msg = buildShowcaseLineMessage({ designId: d.id, choice: { kind: "ownSlots", codes }, size: 55 });
         expect(msg).not.toBeNull();
         const text = msg as string;
-        expect(text.match(/\d[\d,]*\s*บาท/g)).toEqual([`${SHOWCASE_PRICE_THB} บาท`]);
+        expect(text.match(/\d[\d,]*\s*บาท/g)).toEqual([`${showcasePriceThb(d.id)} บาท`]);
         expect(text).not.toMatch(/หลัก|เสริม|ชุด \d|เพชร|CZ เล็ก/);
         expect(text).toContain("พลอย: เลือกพลอยเอง (รายเม็ด · ซ้ายไปขวา มองตรงหน้าแหวน)");
         for (const line of ownSlotLines(formatOwnSlots(codes) ?? [])) expect(text).toContain(line);

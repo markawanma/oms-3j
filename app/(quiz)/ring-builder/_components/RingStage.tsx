@@ -40,6 +40,8 @@ export function RingStage({
   const [failedDesign, setFailedDesign] = useState<ShowcaseDesignId | null>(null);
   // remount viewer เมื่อกด "ลองอีกครั้ง" (สร้าง context + โมเดลใหม่)
   const [attempt, setAttempt] = useState(0);
+  // drag hint: แสดงครั้งเดียวต่อการโหลดหน้า (state นี้อยู่ที่ stage ซึ่งไม่ remount ตอนเปลี่ยนแบบ · ไม่ใช้ storage) · true = เล่นจบ/ผู้ใช้แตะแล้ว
+  const [hintDone, setHintDone] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -70,6 +72,16 @@ export function RingStage({
   }, [design.id, failedDesign]);
 
   const designFailed = failedDesign === design.id;
+  // reduced-motion: ไม่แสดงจุดเลย (จุดนิ่งๆ ไม่สื่อว่า "ลากได้" และดูเหมือนฝุ่นบนภาพ · ป้าย "ลากเพื่อหมุน" ยังอยู่) — อ่านตอน render หลัง ready เท่านั้น (client-only ไม่กระทบ hydration)
+  const hintVisible =
+    mode === "ready" && !designFailed && !hintDone && !(typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches);
+
+  // เล่น ~3 รอบ (5.8s) แล้วถอดจาก DOM · CSS ทำ fade-out เอง ตัวนี้แค่เก็บกวาด
+  useEffect(() => {
+    if (!hintVisible) return;
+    const t = window.setTimeout(() => setHintDone(true), 6000);
+    return () => window.clearTimeout(t);
+  }, [hintVisible]);
   const showViewer = Viewer !== null && mode !== "unsupported" && mode !== "checking";
   const showFallback = mode !== "ready" || designFailed;
   const loading = (mode === "checking" || mode === "loading") && !designFailed;
@@ -85,6 +97,8 @@ export function RingStage({
     <section
       aria-label={SHOWCASE_COPY.stageLabel}
       aria-busy={loading || undefined}
+      onPointerDown={hintDone ? undefined : () => setHintDone(true)}
+      onTouchStart={hintDone ? undefined : () => setHintDone(true)}
       className="relative h-[40dvh] min-h-[240px] w-full overflow-hidden rounded-2xl border border-[var(--gq-border)] bg-gradient-to-b from-white to-[var(--gq-border-soft)] lg:h-[min(72dvh,640px)]"
     >
       {/* เงาใต้แหวน (§9.4 ข้อ 5) = CSS radial-gradient ใต้ canvas — ไม่ใช่ texture/FBO · ตำแหน่งเทียบกับกรอบกล้องมุมหน้า ให้ TL ดูด้วยตา */}
@@ -135,6 +149,13 @@ export function RingStage({
         <span className="pointer-events-none absolute right-2.5 top-2.5 z-10 rounded-full bg-white/90 px-3 py-1 text-xs text-[var(--gq-text-muted)]">
           {SHOWCASE_COPY.dragHint}
         </span>
+      )}
+
+      {hintVisible && (
+        // จุดขาวแนะนำให้ลากหมุน (เจ้าของสั่ง 24 พ.ย.) — CSS ล้วน · ไม่รับ pointer · ซ่อนจาก screen reader (ป้าย "ลากเพื่อหมุน" เป็นตัวบอกจริง)
+        <div data-testid="drag-hint" aria-hidden="true" className="pointer-events-none absolute left-1/2 top-[78%] z-10 -ml-[7.5px] animate-gq-hint-life">
+          <span className="block h-[15px] w-[15px] animate-gq-hint-swipe rounded-full border border-white/90 bg-white shadow-[0_1px_4px_rgba(60,48,48,0.45),0_0_0_1px_rgba(60,48,48,0.1)]" />
+        </div>
       )}
 
       {statusText && (

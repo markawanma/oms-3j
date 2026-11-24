@@ -2,8 +2,8 @@
 import { describe, expect, it } from "vitest";
 import type { GemQuizStoneCode } from "@/lib/gem-quiz/config";
 import { slotTints } from "../viewer/gem-colors";
-import { SHOWCASE_PRICE_THB } from "./config";
-import { DESIGNS, ownSlotCount } from "./designs";
+import { showcasePriceThb } from "./config";
+import { DESIGNS, ownSlotCount, isSingleStone } from "./designs";
 import { buildShowcaseLineHref, buildShowcaseLineMessage } from "./line-message";
 import { fillAll, fitOwnToCount } from "./own-slots";
 import { buildShowcaseUrl, CZ_SLOT, parseOwnSlotsParam, readShowcaseParams, type SlotCode } from "./quiz-link";
@@ -12,7 +12,8 @@ import { describeOwnSlots } from "./sets";
 const G: GemQuizStoneCode = "garnet";
 const A: GemQuizStoneCode = "amethyst";
 const Z = CZ_SLOT;
-const ROWS = DESIGNS.filter((d) => d.layout.kind === "row");
+// แบบแถวหลายเม็ด (≥3) — เม็ดเดี่ยวมีข้อความ/ข้อห้ามต่างออกไป (Z13) ทดสอบแยกใน solitaire.test.ts
+const ROWS = DESIGNS.filter((d) => d.layout.kind === "row" && !isSingleStone(d));
 const cross = DESIGNS.find((d) => d.layout.kind !== "row")!;
 
 describe("QA: c fuzz — ไม่ throw, ไม่ผ่านค่าเพี้ยน, ไม่เขียนค่าดิบกลับ URL", () => {
@@ -53,7 +54,7 @@ describe("QA: c fuzz — ไม่ throw, ไม่ผ่านค่าเพ�
 });
 
 describe("QA: LINE เมทริกซ์ 6 แบบแถว × (CZ ล้วน · ผสม · ไม่มี CZ) × ไซซ์", () => {
-  it("มี 6 แบบแถว", () => expect(ROWS).toHaveLength(6));
+  it("มี 6 แบบแถวหลายเม็ด", () => expect(ROWS).toHaveLength(6));
   for (const d of ROWS) {
     const n = ownSlotCount(d);
     const patterns: Record<string, SlotCode[]> = {
@@ -67,8 +68,8 @@ describe("QA: LINE เมทริกซ์ 6 แบบแถว × (CZ ล้�
         it(`${d.id} · ${pname} · size ${size}`, () => {
           const msg = buildShowcaseLineMessage({ designId: d.id, choice: { kind: "ownSlots", codes }, size })!;
           expect(msg).toBeTruthy();
-          // ราคาตัวเดียว = 890
-          expect(msg.match(/\d[\d,]*\s*บาท/g)).toEqual([`${SHOWCASE_PRICE_THB.toLocaleString("en-US")} บาท`]);
+          // ราคาตัวเดียว = ราคาของแบบนั้น
+          expect(msg.match(/\d[\d,]*\s*บาท/g)).toEqual([`${showcasePriceThb(d.id).toLocaleString("en-US")} บาท`]);
           expect(msg).not.toMatch(/เพชร|พลอยหลัก|พลอยเสริม|diamond/i);
           const czs = codes.filter((c) => c === Z).length;
           if (czs === n) expect(msg).toContain(`เม็ด 1–${n}: CZ ขาวทุกเม็ด`);

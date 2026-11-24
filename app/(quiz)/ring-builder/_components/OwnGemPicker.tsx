@@ -1,12 +1,12 @@
 "use client";
 
-// OwnGemPicker — แผงโหมด "เลือกพลอยเอง": 2 แถว radiogroup (พลอยหลัก/พลอยเสริม · ตำแหน่งตามแบบแหวน) × 5 ชนิดเดิม · หลัก=เสริมได้ (25 ชุด) · ราคาไม่เปลี่ยน (890 บาทที่เดียว)
+// OwnGemPicker — แผงโหมด "เลือกพลอยเอง": 2 แถว radiogroup (พลอยหลัก/พลอยเสริม · ตำแหน่งตามแบบแหวน) × 5 ชนิดเดิม · หลัก=เสริมได้ (25 ชุด) · ราคาไม่เปลี่ยนตามพลอยที่เลือก (ราคาต่อแบบ จาก config)
 // 🔴 คำอธิบายมาจาก config เท่านั้น: คู่ตรงใน GEM_QUIZ_PAIRS (findExactPair) → ข้อความคู่เดิม · ไม่มีคู่ → labelTh + keywords รายเม็ด + หมายเหตุ · ไม่มีคำเชื่อมความหมายเอง (Y4)
 // ปุ่ม 5 ต่อแถวที่ 360px ≈ 59×64px · เลือกแล้ว = ขอบหนา + เครื่องหมายถูก (ไม่พึ่งสี) · ←→ roving ต่อแถว
 import { useId, useRef } from "react";
 import { GEM_QUIZ_STONES, type GemQuizStoneCode } from "@/lib/gem-quiz/config";
 import { SHOWCASE_COPY } from "@/lib/ring-builder/showcase/config";
-import { roleMainLabel, roleSubLabel, type ShowcaseDesign } from "@/lib/ring-builder/showcase/designs";
+import { isSingleStone, roleMainLabel, roleSubLabel, type ShowcaseDesign } from "@/lib/ring-builder/showcase/designs";
 import { isAllCz, slotLabel } from "@/lib/ring-builder/showcase/own-slots";
 import { CZ_SLOT, type OwnGems, type SlotCode } from "@/lib/ring-builder/showcase/quiz-link";
 import { describeOwn, describeOwnSlots } from "@/lib/ring-builder/showcase/sets";
@@ -134,17 +134,27 @@ function PerGemPicker({ design, codes, count, selected, onSelect, onPick, onFill
   const currentName = current ? slotLabel(current) : null;
   const desc = codes ? describeOwnSlots(codes) : null;
   const showFill = current !== null && codes !== null && codes.some((c) => c !== current);
-  const showReset = codes !== null && !isAllCz(codes);
+  // เม็ดเดี่ยว (D1.3 §15.3 จุดที่ 5): radiogroup เดียว 6 ตัวเลือก — ไม่มีแถบเลขเม็ด/ "ใส่ X ทุกเม็ด" / "กลับเป็น CZ ขาวทั้งหมด" / เลิกทำ / ข้อความลำดับซ้ายไปขวา (Z13)
+  const single = isSingleStone(design);
+  const showReset = !single && codes !== null && !isAllCz(codes);
   return (
     <div className="flex flex-col gap-4">
       <PlacementNote design={design} perGem />
-      <div className="flex flex-col gap-2">
-        <p className="text-[13px] text-[var(--gq-text-muted)]">
-          {SHOWCASE_COPY.ownPerGemOrderHint}
-        </p>
-        <OwnSlotBar codes={codes ?? Array.from({ length: count }, () => null)} selected={selected} onSelect={onSelect} />
-      </div>
-      <GemRow label={SHOWCASE_COPY.ownSlotHeading(selected + 1, currentName)} groupLabel={SHOWCASE_COPY.ownSlotRowAria(selected + 1)} value={current} onPick={onPick} withCz />
+      {!single && (
+        <div className="flex flex-col gap-2">
+          <p className="text-[13px] text-[var(--gq-text-muted)]">
+            {SHOWCASE_COPY.ownPerGemOrderHint}
+          </p>
+          <OwnSlotBar codes={codes ?? Array.from({ length: count }, () => null)} selected={selected} onSelect={onSelect} />
+        </div>
+      )}
+      <GemRow
+        label={single ? (currentName ? `${SHOWCASE_COPY.singleStoneLabel} · ${currentName}` : SHOWCASE_COPY.singleStoneLabel) : SHOWCASE_COPY.ownSlotHeading(selected + 1, currentName)}
+        groupLabel={single ? SHOWCASE_COPY.singleStoneLabel : SHOWCASE_COPY.ownSlotRowAria(selected + 1)}
+        value={current}
+        onPick={onPick}
+        withCz
+      />
       {(showFill || showReset || canUndo) && (
         <div className="flex flex-col gap-2">
           {showFill && current && (
@@ -164,7 +174,7 @@ function PerGemPicker({ design, codes, count, selected, onSelect, onPick, onFill
       {/* CZ ขาวล้วน = ไม่มีคำอธิบายพลอย (CZ ไม่มีความหมาย/ความเชื่อ) -> ไม่แสดงการ์ด */}
       {(codes === null || desc !== null) && (
       <div className="flex flex-col gap-1.5 rounded-2xl border border-[var(--gq-border-soft)] bg-white px-4 py-3.5">
-        {desc === null && <p className="text-sm text-[var(--gq-text-muted)]">{SHOWCASE_COPY.ownEmptyHintPerGem}</p>}
+        {desc === null && <p className="text-sm text-[var(--gq-text-muted)]">{single ? SHOWCASE_COPY.singleStoneEmptyHint : SHOWCASE_COPY.ownEmptyHintPerGem}</p>}
         {desc?.kind === "pair" && (
           <>
             <p className="font-quiz-display text-xl font-semibold text-[var(--gq-burgundy-dark)]">{desc.pair.title}</p>
@@ -174,7 +184,7 @@ function PerGemPicker({ design, codes, count, selected, onSelect, onPick, onFill
         )}
         {desc?.kind === "same" && (
           <>
-            <p className="text-base font-medium text-[var(--gq-burgundy-dark)]">{desc.withCz ? desc.label : SHOWCASE_COPY.ownBothSame(desc.label)}</p>
+            <p className="text-base font-medium text-[var(--gq-burgundy-dark)]">{desc.withCz || single ? desc.label : SHOWCASE_COPY.ownBothSame(desc.label)}</p>
             <p className="text-sm text-[var(--gq-text-muted)]">{desc.keywords}</p>
           </>
         )}

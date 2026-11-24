@@ -30,6 +30,10 @@ import small71 from "./small7-1.jpg";
 import small72 from "./small7-2.jpg";
 import small73 from "./small7-3.jpg";
 import small74 from "./small7-4.jpg";
+import solitaire1 from "./solitaire-1.jpg";
+import solitaire2 from "./solitaire-2.jpg";
+import solitaire3 from "./solitaire-3.jpg";
+import solitaire4 from "./solitaire-4.jpg";
 import type { ShowcaseDesignId } from "@/lib/ring-builder/showcase/designs";
 
 export interface ShowcasePhoto {
@@ -43,7 +47,7 @@ function toPhoto(m: StaticImageData | string): ShowcasePhoto {
   return typeof m === "string" ? { src: m, width: 900, height: 1200 } : { src: m.src, width: m.width, height: m.height };
 }
 
-// รูปถ่ายจริงต่อแบบ — ไขว้ 5 รูป · อีก 6 แบบ 4 รูป/แบบ (เจ้าของส่งมา 20 พ.ย. 69 · 900x1200 · ลบ EXIF แล้ว · ห้ามใช้ public/)
+// รูปถ่ายจริงต่อแบบ — ไขว้ 5 รูป · อีก 7 แบบ 4 รูป/แบบ (เจ้าของส่งมา 20 พ.ย. 69 · เม็ดเดี่ยว 24 พ.ย. 69 · 900x1200 · ลบ EXIF แล้ว · ห้ามใช้ public/)
 // แบบในอนาคตที่ยังไม่มีรูป = ใส่ [] → UI แสดงการ์ด "ยังไม่มีรูปถ่ายจริง" · ห้ามเอารูปแบบอื่นมาแทน (Z6)
 export const SHOWCASE_PHOTOS: Readonly<Record<ShowcaseDesignId, readonly ShowcasePhoto[]>> = {
   bypass2: [p1, p2, p3, p4, p5].map(toPhoto),
@@ -53,4 +57,5 @@ export const SHOWCASE_PHOTOS: Readonly<Record<ShowcaseDesignId, readonly Showcas
   channel6: [channel61, channel62, channel63, channel64].map(toPhoto),
   bar7: [bar71, bar72, bar73, bar74].map(toPhoto),
   small7: [small71, small72, small73, small74].map(toPhoto),
+  solitaire: [solitaire1, solitaire2, solitaire3, solitaire4].map(toPhoto), // เจ้าของส่งมา 24 พ.ย. 69 · 900x1200 · ลบ EXIF แล้ว
 };

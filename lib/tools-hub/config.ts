@@ -4,7 +4,7 @@
 // ค่าที่เจ้าของเคาะแล้ว (18 พ.ย. 69 — บันทึกใน ux-tools-hub.md ข้อ 12): ลำดับการ์ด วัดไซซ์ → แบบทดสอบพลอย → ดูแหวน · การ์ดทั้ง 3 ใบสไตล์เดียวกัน (outline) · หัวข้อ "เครื่องมือเลือกแหวนของ 3J" · ไม่มีคำสัญญาเชิงบริการใต้หัวข้อ
 // ค่าติดต่อ: ใช้ LINE_OA_URL เดิมเท่านั้น (เจ้าของยืนยัน 24 ต.ค. 69) · ไม่ใส่เบอร์/อีเมล/social อื่น
 import { DESIGNS } from "@/lib/ring-builder/showcase/designs";
-import { GEM_QUIZ_PATH, RING_SIZE_PATH, SHOWCASE_PATH, formatPriceThb, leadTimeLabel } from "@/lib/ring-builder/showcase/config";
+import { GEM_QUIZ_PATH, RING_SIZE_PATH, SHOWCASE_PATH, leadTimeLabel } from "@/lib/ring-builder/showcase/config";
 
 export type HubToolId = "ring-builder" | "gem-quiz" | "ring-size";
 
@@ -14,7 +14,7 @@ export interface HubTool {
   href: string;
   title: string;
   description: string;
-  /** เลขราคา/ระยะเวลาต้องมาจากฟังก์ชันเดิม ห้ามพิมพ์เลข */
+  /** ระยะเวลาต้องมาจากฟังก์ชันเดิม ห้ามพิมพ์เลข · hub ไม่แสดงราคา (ราคาต่อแบบ — มติ TL 24 พ.ย. 69) */
   meta: string;
   cta: string;
 }
@@ -42,7 +42,7 @@ export const HUB_TOOLS: readonly HubTool[] = [
     href: SHOWCASE_PATH,
     title: "ดูแหวนและลองพลอย",
     description: `เลือกแบบแหวน ${DESIGNS.length} แบบ ลองสลับพลอยบนแหวน เลือกไซซ์ แล้วส่งให้แอดมินยืนยัน`,
-    meta: `${formatPriceThb()} · ${leadTimeLabel()}`,
+    meta: leadTimeLabel(),
     cta: "ดูแหวน",
   },
 ];

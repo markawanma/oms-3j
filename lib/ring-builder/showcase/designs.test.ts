@@ -1,4 +1,4 @@
-// D1.2 — designs.ts (7 แบบ) + param `r` + URL ไขว้ byte เดิม + designTints + เชื่อม 3D↔ข้อมูลลูกค้า (Z1 · Z3 · Z7 · ต้องไม่พัง)
+// D1.2/D1.3 — designs.ts (8 แบบ) + param `r` + URL ไขว้ byte เดิม + designTints + เชื่อม 3D↔ข้อมูลลูกค้า (Z1 · Z3 · Z7 · ต้องไม่พัง)
 import { describe, expect, it } from "vitest";
 import { GEM_QUIZ_STONE_CODES } from "@/lib/gem-quiz/config";
 import { RING_BUILDER_SIZES } from "../config";
@@ -6,13 +6,16 @@ import { CZ_TINT, designTints, ringTints, stoneTint } from "../viewer/gem-colors
 import { ROW_PRESETS } from "../viewer/row-presets";
 import { SHOWCASE_RING_IDS, getShowcaseRing } from "../viewer/showcase-rings";
 import {
+  DEFAULT_DESIGN_ID,
   DESIGNS,
   SHOWCASE_DESIGN_IDS,
   findShowcaseDesign,
   gemSlotCount,
   getShowcaseDesign,
   isShowcaseDesignId,
+  isSingleStone,
   mainIndexes,
+  ownSlotCount,
   placementNote,
   roleMainLabel,
   roleSubLabel,
@@ -28,17 +31,24 @@ const table = (): IntentionTable => {
 };
 
 describe("designs.ts — ข้อมูลฝั่งลูกค้า", () => {
-  it("7 แบบ ลำดับตาม UX (ไขว้ · TRINITY · ก้นหอย · ฝังล็อค 4 · ฝังล็อค 6 · เตย · แถวเล็ก) และตรงกับโมเดล 3D ทีละ id", () => {
-    expect(DESIGNS.map((d) => d.id)).toEqual(["bypass2", "trinity", "scroll6", "channel4", "channel6", "bar7", "small7"]);
-    expect([...SHOWCASE_DESIGN_IDS]).toEqual([...SHOWCASE_RING_IDS]);
-    expect(DESIGNS.map((d) => d.shortName)).toEqual(["ไขว้ 2 เม็ด", "TRINITY 3 เม็ด", "ก้นหอย 6 เม็ด", "ฝังล็อค 4 เม็ด", "ฝังล็อค 6 เม็ด", "เตย 7 เม็ด", "แถวเล็ก 7 เม็ด"]);
+  it("8 แบบ เรียงตามจำนวนเม็ดน้อย→มาก (เจ้าของสั่ง 24 พ.ย.) เท่ากันคงลำดับเดิม · ตรงกับโมเดล 3D ทีละ id", () => {
+    expect(DESIGNS.map((d) => d.id)).toEqual(["solitaire", "bypass2", "trinity", "channel4", "scroll6", "channel6", "bar7", "small7"]);
+    const counts = DESIGNS.map(ownSlotCount);
+    expect(counts).toEqual([...counts].sort((a, b) => a - b));
+    expect([...SHOWCASE_DESIGN_IDS].sort()).toEqual([...SHOWCASE_RING_IDS].sort());
+    expect(DESIGNS.map((d) => d.shortName)).toEqual(["เม็ดเดี่ยว (1 เม็ด)", "ไขว้ 2 เม็ด", "TRINITY 3 เม็ด", "ฝังล็อค 4 เม็ด", "ก้นหอย 6 เม็ด", "ฝังล็อค 6 เม็ด", "เตย 7 เม็ด", "แถวเล็ก 7 เม็ด"]);
+  });
+  it("แบบเริ่มต้นไม่ผูกกับลำดับการ์ด: DEFAULT_DESIGN_ID = ไขว้ แม้การ์ดใบแรกเป็นเม็ดเดี่ยว", () => {
+    expect(DESIGNS[0].id).toBe("solitaire");
+    expect(DEFAULT_DESIGN_ID).toBe("bypass2");
   });
   it("จำนวนเม็ด/เม็ดหลักตรงกับพารามิเตอร์ 3D และเรขาคณิตจริง (ไขว้ 4 เม็ดในโมเดล = พลอยไข่ 2 + CZ 2)", () => {
     for (const d of DESIGNS) {
       const ring = getShowcaseRing(d.id);
       expect(ring.gems.length).toBe(gemSlotCount(d));
       if (d.layout.kind === "row") {
-        expect(d.layout.stoneCount).toBe(ROW_PRESETS[d.id as keyof typeof ROW_PRESETS].stoneCount);
+        // เม็ดเดี่ยวไม่อยู่ใน ROW_PRESETS (generator แยก solitaire-ring.ts) — จำนวนเม็ดล็อกด้วย gems.length ข้างบนแล้ว
+        if (d.id !== "solitaire") expect(d.layout.stoneCount).toBe(ROW_PRESETS[d.id as keyof typeof ROW_PRESETS].stoneCount);
         expect(d.mainCount).toBe(mainIndexes(d.layout.stoneCount).length);
         expect(d.extraCz).toBe(0); // มติ 9 พ.ย.: พลอยทุกเม็ดในวงขนาดเท่ากัน — ไม่มี CZ เล็กในแบบแถว
       } else {
@@ -58,9 +68,11 @@ describe("designs.ts — ข้อมูลฝั่งลูกค้า", () =
     expect(placementNote(getShowcaseDesign("bypass2"))).toBe("เม็ดบน = พลอยหลัก · เม็ดล่าง = พลอยเสริม · CZ เล็ก 2 เม็ดมาพร้อมแหวน");
     expect(placementNote(getShowcaseDesign("trinity"))).toBe("เม็ดกลาง = พลอยหลัก · เม็ดข้างที่เหลือ = พลอยเสริม");
     expect(placementNote(getShowcaseDesign("channel4"))).toBe("เม็ดกลาง 2 เม็ด = พลอยหลัก · เม็ดข้างที่เหลือ = พลอยเสริม");
-    for (const d of DESIGNS.filter((x) => x.layout.kind === "row")) {
+    for (const d of DESIGNS.filter((x) => x.layout.kind === "row" && !isSingleStone(x))) {
       expect(placementNote(d)).not.toMatch(/บน|ล่าง|CZ/);
     }
+    // เม็ดเดี่ยว: ไม่มีหลัก/เสริมให้อธิบาย → null (PlacementNote ไม่ render)
+    expect(placementNote(getShowcaseDesign("solitaire"))).toBeNull();
   });
   it("ไซซ์: ไขว้ 55–58 · แบบแถว 50–60 · ต่อเนื่อง · อยู่ในช่วงร้าน", () => {
     for (const d of DESIGNS) {
@@ -77,8 +89,8 @@ describe("designs.ts — ข้อมูลฝั่งลูกค้า", () =
       expect(Object.keys(d).sort()).toEqual(["extraCz", "id", "layout", "mainCount", "name", "positions", "shortName", "sizes"]);
       expect(JSON.stringify(d)).not.toMatch(/เพชร|price|lead|mm|gram|กรัม|บาท/i);
     }
-    expect(new Set(DESIGNS.map((d) => d.name)).size).toBe(7);
-    expect(new Set(DESIGNS.map((d) => d.shortName)).size).toBe(7);
+    expect(new Set(DESIGNS.map((d) => d.name)).size).toBe(8);
+    expect(new Set(DESIGNS.map((d) => d.shortName)).size).toBe(8);
   });
   it("isShowcaseDesignId/findShowcaseDesign: whitelist เป๊ะ (proto/ตัวพิมพ์ใหญ่/ช่องว่าง = ไม่ผ่าน)", () => {
     for (const id of SHOWCASE_DESIGN_IDS) {
@@ -92,8 +104,27 @@ describe("designs.ts — ข้อมูลฝั่งลูกค้า", () =
   });
 });
 
+describe("D1.3 — แบบที่ 8 เม็ดเดี่ยว", () => {
+  it("solitaire: row 1 เม็ด · เม็ดกลาง 1 · ไซซ์ 50–60 · ไม่มี CZ เล็ก · isSingleStone เฉพาะแบบนี้", () => {
+    const d = getShowcaseDesign("solitaire");
+    expect(d.layout).toEqual({ kind: "row", stoneCount: 1 });
+    expect(d.mainCount).toBe(1);
+    expect(d.extraCz).toBe(0);
+    expect(sizeRange("solitaire")).toEqual({ min: 50, max: 60 });
+    expect(gemSlotCount(d)).toBe(1);
+    expect(mainIndexes(1)).toEqual([0]);
+    expect(DESIGNS.filter(isSingleStone).map((x) => x.id)).toEqual(["solitaire"]);
+    expect(d.name).toBe("เม็ดเดี่ยว (1 เม็ด)"); // เจ้าของตั้งชื่อแล้ว 24 พ.ย.
+  });
+  it("designTints('solitaire') ยาว 1 · สลับแบบไปมา: tints ยาวเท่าเม็ดของแบบเสมอ", () => {
+    expect(designTints("solitaire", "garnet", "citrine")).toHaveLength(1);
+    expect(designTints("solitaire", null, null)).toEqual([CZ_TINT]);
+    expect(designTints("solitaire", "garnet", "citrine")[0]).toEqual(stoneTint("garnet"));
+  });
+});
+
 describe("Z1 — param `r`", () => {
-  it("id ถูก 7 ตัว → ผ่าน", () => {
+  it("id ถูก 8 ตัว → ผ่าน", () => {
     for (const id of SHOWCASE_DESIGN_IDS) expect(parseDesignIdParam(id)).toBe(id);
   });
   it("นอก whitelist / ยาว > 64 / array (key ซ้ำ) / __proto__ / HTML / ตัวพิมพ์ใหญ่ → null ไม่ throw", () => {

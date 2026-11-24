@@ -1,7 +1,7 @@
 // QA D1.2 (R2-D2) - adversarial, independent of dev tests: r param, LINE matrix, placement, URL back-compat
 import { describe, expect, it } from "vitest";
-import { SHOWCASE_PRICE_THB } from "./config";
-import { DESIGNS, SHOWCASE_DESIGN_IDS, getShowcaseDesign, gemSlotCount, mainIndexes } from "./designs";
+import { showcasePriceThb } from "./config";
+import { DESIGNS, SHOWCASE_DESIGN_IDS, getShowcaseDesign, gemSlotCount, isSingleStone, mainIndexes } from "./designs";
 import { buildShowcaseLineHref, buildShowcaseLineMessage, isShowcaseSize, type ShowcaseChoice } from "./line-message";
 import { buildShowcaseHref, buildShowcaseUrl, parseDesignIdParam, parseTableParam, readShowcaseParams, type IntentionTable } from "./quiz-link";
 import { designTints } from "../viewer/gem-colors";
@@ -77,7 +77,7 @@ describe("Case 3: LINE message matrix = designs x choices x sizes", () => {
     expect(buildShowcaseLineMessage(null as never)).toBeNull();
     expect(buildShowcaseLineMessage(undefined as never)).toBeNull();
   });
-  it("every design x choice x size: null iff size invalid; else one price 890, name, no diamond, no link", () => {
+  it("every design x choice x size: null iff size invalid; else one price of the design, name, no diamond, no link", () => {
     const oddSizes: unknown[] = [NaN, Infinity, -Infinity, -1, 0, 49.5, 55.5, "55", undefined, 1e9];
     let sent = 0;
     for (const d of DESIGNS) {
@@ -95,8 +95,8 @@ describe("Case 3: LINE message matrix = designs x choices x sizes", () => {
           const m = msg as string;
           expect(m).toContain(`แบบแหวน: ${d.name}`);
           const prices = [...m.matchAll(/(\d[\d,]*)\s*บาท/g)].map((x) => x[1]);
-          expect(prices).toEqual([SHOWCASE_PRICE_THB.toLocaleString("en-US")]);
-          expect(prices[0]).toBe("890");
+          expect(prices).toEqual([showcasePriceThb(d.id).toLocaleString("en-US")]);
+          expect(prices[0]).toBe(String(showcasePriceThb(d.id)));
           expect(m).not.toContain("เพชร");
           expect(m).not.toMatch(/https?:|lin\.ee|@\w/i);
           if (choice.kind === "own" || choice.kind === "direct") expect(m).not.toMatch(/ชุด \d/);
@@ -104,7 +104,8 @@ describe("Case 3: LINE message matrix = designs x choices x sizes", () => {
           expect(/CZ เล็ก 2 เม็ด/.test(m)).toBe(d.id === "bypass2");
           // D1.2a: แบบแถว + เลือกเองที่ยังไม่เลือก = โหมดรายเม็ด → ไม่มีบรรทัดหลัก/เสริม (contract เปลี่ยน)
           const unpickedRow = d.layout.kind === "row" && choice.kind === "direct" && choice.unpicked === true;
-          if (unpickedRow) expect(m).not.toMatch(/พลอยหลัก|พลอยเสริม/);
+          if (isSingleStone(d)) expect(m).not.toMatch(/พลอยหลัก|พลอยเสริม|เม็ดข้าง|ทุกเม็ด|เม็ด 1|ซ้ายไปขวา/); // D1.3 Z13
+          else if (unpickedRow) expect(m).not.toMatch(/พลอยหลัก|พลอยเสริม/);
           else {
             expect(m).toContain(`พลอยหลัก (${d.positions.main})`);
             expect(m).toContain(`พลอยเสริม (${d.positions.sub})`);

@@ -1,5 +1,6 @@
 # Technical design: /ring-builder D1.2 — 7 แบบแหวน · Yoda 18 พ.ย. 69
 
+> **D1.3 (24 พ.ย. 69) — แบบที่ 8 เม็ดเดี่ยว 790 บาท + ราคาต่อแบบ: ดู §15 ท้ายไฟล์ · §15 ทับ §7 (ไม่มีช่องราคา) · §8-3 · Z3 ใน §11**
 > ต่อจาก `design-ring-showcase-demo.md` (D1 §1–§8 · D1.1 §9 · มติ §10) และคู่กับ UX `ux-ring-showcase-multi.md` (Padmé 18 พ.ย.) — **ไฟล์นี้ทับข้อที่ขัดกัน** (§0)
 > คำสั่งเจ้าของ 18 พ.ย. 69: 6 แบบที่ปั้น 3D แล้ว + ไขว้เดิม = 7 แบบ · 890 บาททุกแบบ · เม็ดกลาง = พลอยหลัก ที่เหลือ = พลอยเสริม (4/6 เม็ด = 2 เม็ดกลาง) · ไซซ์แบบใหม่ 50–60 · ไขว้ 55–58 · config ในโค้ด (D2 แยก)
 > **ฐาน = origin/main `c03bdbd`** (ราคา 890 merge แล้ว) — branch นี้ยังอยู่ที่ `16df8c3` ต้อง fast-forward ก่อนเริ่ม (ancestor แล้ว ไม่มี conflict)
@@ -167,3 +168,137 @@ RingShowcaseClient state: designId · intention · recIndex · own · active · 
 5. แบบใหม่มี CZ เล็กติดมาไหม (UX §12-4) · 21 วันและไซซ์ 50–60 ใช้กับทุกแบบใหม่เหมือนกันไหม (UX §12-7)
 6. เรียกชุดพลอยว่า "ชุด 1/2/3" ได้ไหม (UX §12-3) · ลำดับ 7 แบบ · h1 ใหม่ (UX §12-2, 8)
 7. (ไม่บล็อก) จบ quiz ยังลงแบบไขว้เป็นค่าเริ่มต้น — เสนอ: คงไว้
+
+
+---
+
+## 15. D1.3 แบบเม็ดเดี่ยว + ราคาต่อแบบ (24 พ.ย. 69 · Yoda)
+
+> คำสั่งเจ้าของ 24 พ.ย. 69 (คำต่อคำ): "ผ่าน ราคา 790 วงนี้จะถูกกว่า เอาขึ้นได้เลย ตัดคำว่า 890 ทุกวงออก"
+> = แหวนเม็ดเดี่ยว 6 เตย (v4 · `cad/solitaire-ring-spec.md`) เป็น **แบบที่ 8 ราคา 790 บาท** · 7 แบบเดิม **890 บาท** · ข้อความ "890 บาท ทุกแบบ" หายจากทุกที่
+> ฐาน: branch `feature/showcase-solitaire` (main + spec เม็ดเดี่ยว `c6d0453`)
+
+### 15.0 มติที่ §15 ทับ
+| เดิม | ใหม่ |
+|---|---|
+| §7 / หัว `designs.ts` "ไม่มีช่องราคา · ราคาอยู่ config ค่าเดียว" · §8-3 "ไม่มีราคาต่อแบบ" | ราคา **ต่อแบบ** · ยังอยู่ `config.ts` ที่เดียว (§15.1) · `designs.ts` ยังไม่มีช่องราคา |
+| Z3 "ราคาอื่นนอก 890" | Z3-ใหม่ (§15.6): แต่ละแบบเห็นราคาของตัวเองค่าเดียว |
+| หัวหน้า `priceAllDesigns` "890 บาท ทุกแบบ" | ราคาของแบบที่เลือกอยู่ (§15.2) |
+| `layout.kind: "row"` มี stoneCount 3/4/6/7 | เพิ่ม `stoneCount: 1` (เม็ดเดี่ยว) + predicate `isSingleStone(d)` (§15.3) |
+
+### 15.1 ราคาต่อแบบ — แหล่งเดียว
+- `lib/ring-builder/showcase/config.ts`: **ลบ `SHOWCASE_PRICE_THB`** (import เดิมทุกตัว compile ไม่ผ่าน = ไม่มีจุดไหนหลุดไปใช้ 890 เงียบๆ) แทนด้วย
+  ```ts
+  export const SHOWCASE_PRICE_THB_BY_DESIGN: Readonly<Record<ShowcaseDesignId, number>> = {
+    bypass2: 890, trinity: 890, scroll6: 890, channel4: 890, channel6: 890, bar7: 890, small7: 890,
+    solitaire: 790, // เจ้าของ 24 พ.ย. 69
+  };
+  export function showcasePriceThb(id: ShowcaseDesignId): number   // id นอก whitelist = throw (ผู้เรียกส่ง id ที่ผ่านด่านแล้วเสมอ)
+  export function formatPriceThb(id: ShowcaseDesignId): string     // "790 บาท" — arg บังคับ ไม่มี default
+  ```
+- **ทำไม map ใน config ไม่ใช่ `priceThb` ใน DESIGNS**: (1) `Record<ShowcaseDesignId, number>` บังคับครบทุก id ตอน compile — เพิ่มแบบที่ 9 แล้วลืมราคา = build ไม่ผ่าน (2) คงการแบ่งชั้นเดิม: config = ค่าเงิน/เวลาที่เจ้าของสั่ง · designs = รูปร่างแบบ (3) แก้ราคาแบบเดียว = diff 1 บรรทัด ไฟล์เดียว · **ตัดทิ้ง**: `priceThb` ใน DESIGNS (ต้องแก้ `rowDesign()` + ทำลายการแบ่งชั้น) · `formatPriceThb(id?)` มี default (ลืมส่ง id ได้ 890 เงียบๆ = บั๊กที่กำลังกัน)
+- ลบ `SHOWCASE_COPY.priceAllDesigns` ทิ้ง (ไม่ใช่แค่เลิกใช้)
+- `designAnnounce` ต่อราคาท้าย: "เลือกแบบ {name} แล้ว · {price}" (screen reader รู้ว่าราคาเปลี่ยน)
+
+### 15.2 ราคาโผล่ที่ไหน (ครบจาก grep `formatPriceThb|priceAllDesigns|890` 24 พ.ย.)
+| จุด | ไฟล์ | ใหม่ |
+|---|---|---|
+| หัวหน้า | `RingShowcaseClient.tsx:248` | `formatPriceThb(designId)` + " · พรีออเดอร์…" เปลี่ยนตามแบบที่เลือก |
+| การ์ดเลือกแบบ | `_components/DesignPicker.tsx` | **แสดงราคาใต้ชื่อสั้นทุกใบ** (ราคาไม่เท่ากันแล้ว ลูกค้าต้องเห็นก่อนกด) · chip สูง 72→~88px · aria-label = ชื่อ + ราคา |
+| สรุป | `_components/OrderSummary.tsx:75` | `formatPriceThb(design.id)` |
+| LINE | `line-message.ts:99` | `formatPriceThb(design.id)` — design ที่ผ่าน `findShowcaseDesign` แล้วเท่านั้น |
+| hub | `lib/tools-hub/config.ts:45` | **ไม่แสดงราคาใดๆ** (มติ TL 24 พ.ย. ทับค่าตั้งต้นเดิม "เริ่มต้น 790") — เหลือ `leadTimeLabel()` อย่างเดียว · ไม่มี `minShowcasePriceThb` · จำนวนแบบนับอัตโนมัติจาก `DESIGNS.length` (8) · หมายเหตุ: ก่อน D1.3 hub มี "890 บาท · พรีออเดอร์…" อยู่ในโค้ดจริง (meta ของการ์ดดูแหวน) — ถูกถอดราคาออกตามมติ |
+| คอมเมนต์ "890 ทุกแบบ" | หัว `config.ts` · `OwnGemPicker.tsx:3` · `ToolsHub.tsx:9` | แก้ให้ตรง (ไม่ใช่ logic แต่คนอ่านต่อจะเชื่อ) |
+- `pageDescription`/metadata ยังไม่มีตัวเลขราคา (เดิม) · ไม่พบ OG ที่มีเลขราคา (grep 24 พ.ย.)
+- test เดิม 16 ไฟล์มี `890` (41 จุด): เปลี่ยนเป็น `formatPriceThb(id)` · **test เดียวที่ล็อกตัวเลขดิบ** (`config.test.ts`: 7 แบบ = 890 · solitaire = 790) — ค่าเจ้าของถูกล็อกที่เดียว
+
+### 15.3 แบบ 8 เม็ดเดี่ยว — ข้อมูลฝั่งลูกค้า (`designs.ts`)
+- id **`solitaire`** (a–z ล้วน ≤ 64 · ผ่าน `parseDesignIdParam` เดิมโดยไม่แก้ parser) · ต่อท้าย `SHOWCASE_DESIGN_IDS` (chip ใบที่ 8 · ลำดับรอเจ้าของ)
+- `rowDesign("solitaire", "แหวนเม็ดเดี่ยว 6 เตย", "เม็ดเดี่ยว 6 เตย", 1)` // TODO_OWNER_DESIGN_NAME → `mainCount 1` · `extraCz 0` · `sizes 50–60` · lead days 21 (ค่ากลางเดิม)
+- `ShowcaseLayout` row: `stoneCount: 1 | 3 | 4 | 6 | 7` · เพิ่ม `export function isSingleStone(d): boolean` (= row && stoneCount 1)
+- **ทำไม row/1 ไม่ใช่ kind ใหม่ `"solitaire"`**: ของที่ทำงานถูกเองทันทีกับ n=1 — `mainIndexes(1)=[0]` · `seedFromPair` · `fitOwnToCount` (7→1 = เม็ดกลาง · 4→1 = เม็ดกลางตัวแรก · 1→7 = ทุกเม็ด · 1↔ไขว้ = [x,x] / [บน]) · `slotTints`/`designTints` · `ownByCount[1]` · `buildShowcaseUrl` · pictogram (มีกิ่ง n===1 อยู่แล้ว) · **kind ใหม่อันตรายกว่า**: ทุกจุดที่เขียน `kind === "row" ? … : <กิ่งไขว้>` จะตกไปกิ่งไขว้เงียบๆ (`gemSlotCount` → 4 เม็ด · `c` รหัสเต็มบน/ล่าง) · ราคาที่จ่าย: ต้อง branch `isSingleStone` ตามรายการข้างล่าง + test คำต้องห้าม (Z13) ครอบจุดที่ลืม
+- จุดที่ต้อง branch `isSingleStone` (ครบจาก grep `layout.kind|roleSubLabel|formatOwnSlots`):
+  1. `designs.ts` `placementNote()` → คืน `null` → `PlacementNote` ไม่ render
+  2. `line-message.ts` `stonesLine()` → "{singleStoneLabel}: {mainLabel}" (ไม่มีพลอยเสริม) · `resolveChoice` ownSlots → `gemsLine = summaryOwn` ("เลือกพลอยเอง" ไม่ใช่ "รายเม็ด · ซ้ายไปขวา")
+  3. `own-slots.ts` `formatOwnSlots()` ยาว 1 → `[{ label: singleStoneLabel, value: slotLabel(code) }]` (ไม่มี "เม็ด 1" / "(ทุกเม็ด)" / "CZ ขาวทุกเม็ด") — ใช้ร่วม LINE/สรุป/aria จุดเดียว · แถว ≥3 ไม่เปลี่ยน · ไขว้ไม่ใช้ฟังก์ชันนี้
+  4. `OrderSummary.tsx` gemRows · `RingShowcaseClient.tsx` stageAria → 1 แถว/1 วลี `singleStoneLabel`
+  5. `OwnGemPicker.tsx` PerGemPicker เมื่อ single: ซ่อน OwnSlotBar · "ใส่ X ทุกเม็ด" · "กลับเป็น CZ ขาวทั้งหมด" · เลิกทำ · `ownPerGemNote` · `ownPerGemOrderHint` → เหลือ radiogroup เดียว 6 ตัวเลือก (5 พลอย + CZ ขาว ที่มีอยู่แล้ว) · `pickSlotGem` ประกาศ `singleStoneAnnounce(name)` แทน `ownFillAllDone`
+  6. `GemSetPicker.tsx` เมื่อ single: การ์ดชุด n = พลอยอันดับ n **ไอคอนเดียว ชื่อเดียว** (ไม่ใช่ "top + bottom") · ไม่แสดง `sameAs` · คำอธิบาย = `labelTh` + `keywords` ของพลอยนั้นจาก `GEM_QUIZ_STONE_BY_CODE` (ข้อความเดิมของ quiz คำต่อคำ) — **ไม่ใช้ข้อความคู่พลอย `pair.title/th/fit`** เพราะแหวนมีพลอยเม็ดเดียว อ้างสรรพคุณคู่ = ไม่จริง · ไม่แต่งข้อความใหม่
+- copy ใหม่ใน `SHOWCASE_COPY` (ค่าตั้งต้น — Padmé/เจ้าของปรับได้ที่เดียว): `singleStoneLabel: "พลอยเม็ดเดี่ยว"` · `singleStoneAnnounce(name)` = "เปลี่ยนพลอยเป็น{thaiGap(name)}แล้ว"
+- **โหมดแนะนำ**: `choice = { kind: "rec", index, top, bottom }` เดิม — `bottom` ถูกละ (3D ใช้ main เพราะ `mainIndexes(1)=[0]` · LINE/สรุปไม่พิมพ์) · ชุด 1/2/3 = พลอยอันดับ 1/2/3 (= `top` ของ `buildShowcaseSets` เดิม) · ไม่มี quiz = `direct` = CZ ขาว (เดิม)
+- **โหมดเลือกเอง `c`** = **ตัวอักษรเดียว `[gacpbz]`** (`c=g` · `c=z`) — รูปแบบเดียวกับแบบแถว (N ตัวอักษรคั่น `.` โดย N=1) ไม่ใช่รูปแบบไขว้ (`garnet.cz`) · เหตุผล: ใช้ parser/encoder แถวเดิมทั้งเส้น (`parseOwnSlotsParam` กิ่ง `parts.length === n` · `buildShowcaseUrl` slotsOk) ไม่มี format ที่สาม · สลับแบบแล้วสีส่งต่อด้วย `fitOwnToCount` ได้ทันที
+  - 🔴 **ต้องแก้ 1 จุด**: ข้อยกเว้น "ยาว 2 = ลิงก์ preview D1.2 → ขยาย" ใน `parseOwnSlotsParam` ให้ใช้เฉพาะ `n >= 3` — ไม่งั้น `c=g.a&r=solitaire` ถูกรับเป็น `[g]` (ลิงก์แบบนั้นไม่เคยมีจริง = ช่องที่ไม่ได้ตั้งใจเปิด)
+
+### 15.4 3D — `lib/ring-builder/viewer/solitaire-ring.ts` (ใหม่)
+- พอร์ต **ตรงตัว** `SOLITAIRE` + `buildSolitaireRing` จาก `docs/3j-jewelry/cad/trinity-ring-preview.html` (บรรทัด ~1056–1230 ณ `c6d0453`) แบบเดียวกับ `row-ring.ts`: `// @ts-nocheck` ภายในเป็น var-style ห้าม refactor · export มี type ชัด (`SolitaireParams` · `SOLITAIRE` · `buildSolitaireRing(p): ViewerRing`) · ค่าคงที่อยู่ไฟล์เดียวกับ builder ตามแบบ `bypass-ring.ts` (BYPASS2)
+- ต่างจากต้นฉบับเฉพาะ: ตัด `notes[]`/`info`/`params` ออกจากผลลัพธ์ (ค่าประมาณ/หมายเหตุช่าง ห้ามถึงลูกค้า — Z7) · คืน `{ metal, gems, frame: computeCameraFrame(gems, { innerDiaMm, stoneMm, girdleRadiusMm: Rg }), vertexCount }` = สูตรเดียวกับ `rebuild()` ของต้นฉบับ (`info.girdleRadiusMm` = `Rg`) · gems ยาว 1 รูป `RingGem` เดิม
+- `showcase-rings.ts`: `ShowcaseRingId = "bypass2" | RowDesignId | "solitaire"` · `SHOWCASE_RING_IDS` ต่อท้าย `"solitaire"` (test ไขว้ลำดับ = `SHOWCASE_DESIGN_IDS`) · กิ่ง `id === "solitaire" → buildSolitaireRing(SOLITAIRE)` · **ไม่แตะ** `row-ring.ts` `row-presets.ts` `bypass-ring.ts` `matrix.ts` `shaders.ts`
+- `gl-renderer.ts` **ไม่ต้องแก้**: `setRing` เติม/ตัด tints ตาม `gems.length` อยู่แล้ว · `designTints("solitaire")` ยาว 1 (row n=1)
+- **golden** `solitaire-ring.test.ts`: ตัวเลขสร้างจาก **ต้นฉบับ HTML** ด้วย node (ดึงข้อความฟังก์ชันมารัน) ไม่ใช่จากพอร์ต → gems 1 · metalV · metalIdx · totalV · posChk (สูตร `checksums()` เดิมใน `row-ring.test.ts`) · idxSum · frame span/cy · budget (metal < 65536 · รวม < 60k · spec ประมาณ ~2.7k) · ไม่มี NaN/idx หลุด · deterministic · ไม่ mutate `SOLITAIRE` · 🔴 ห้ามแก้ golden ให้ตรงโค้ด · ระบุ commit/บรรทัดต้นฉบับในหัว test
+- import graph: test Z9 เดิม (`row-ring.test.ts` "ไม่เข้า first-load") **เพิ่ม `solitaire-ring` เข้ารายการต้องห้ามของ static graph ของ `page.tsx`** + เคส "solitaire-ring ถูก import จาก showcase-rings.ts ตัวเดียว" — เพิ่มเคส ห้ามผ่อนเคสเดิม
+
+### 15.5 รูปจริง 4 รูป
+- ต้นทาง (🔴 อยู่ใน Temp scratchpad — reboot/cleanup แล้วหาย · **คัดลอกเป็นขั้นแรก**): `C:\Users\MARKAW~1\AppData\Local\Temp\claude\ae49ce3ca2ab8796\2b4dbf60-2e9a-494e-9841-64bebed577f3\scratchpad\ring-photos\solitaire\1.jpg..4.jpg` → `app/(quiz)/ring-builder/_assets/solitaire-1..4.jpg` · 900×1200 · ลบ EXIF ด้วยวิธีเดียวกับ 24 ไฟล์ของ `bcc52b3` · **หมุนตาม EXIF Orientation ก่อนลบ** (ไม่งั้นรูปตะแคง) · ไฟล์อื่นในโฟลเดอร์นั้น (sketch / fb-*) **ห้ามเข้า repo**
+- `_assets/index.ts`: static import 4 ตัว + `solitaire: [...].map(toPhoto)` (Record บังคับครบ id อยู่แล้ว) · `RingShowcase.photos.test.tsx`: solitaire = 4 รูป · Z6 วน 8 แบบ · เพิ่ม test อ่านไบต์ทุก jpg ใน `_assets` ว่าไม่มี marker `Exif` ใน APP1 (ครอบ 33 ไฟล์ — เดิมไม่มีด่านนี้)
+
+### 15.6 ห้ามผ่าน (ต่อจาก §11 · Z3 ถูกแทนด้วย Z3-ใหม่)
+| # | ห้ามผ่าน | ตกที่ |
+|---|---|---|
+| Z3-ใหม่ | LINE/DOM สรุป/หัวหน้า/chip ของแบบใดมีตัวเลข "…บาท" อื่นนอกราคาแบบนั้น (solitaire เห็น 890 · 7 แบบเห็น 790 · ราคาต่อเม็ด) | unit วน 8 แบบ × (rec 1–3 / own / direct / unpicked) × ไซซ์ null+50–60: regex `/\d[\d,]*\s*บาท/g` ได้ค่าเดียว = `formatPriceThb(id)` · RTL: สลับแบบแล้วหัวหน้า+สรุป+href LINE เปลี่ยนตาม |
+| Z11 | `formatPriceThb()` ไม่ส่ง id / `SHOWCASE_PRICE_THB` ยังถูก import | ลบ export → `npm run typecheck` ไม่ผ่าน · `config.test.ts` วน `SHOWCASE_DESIGN_IDS` ทุกตัวมีราคา integer > 0 |
+| Z12 | `?price=` / `?p=` / `?r=solitaire&price=1` เปลี่ยนราคา | `readShowcaseParams` อ่าน 7 key เดิม (test X2 เดิม + เคส solitaire) |
+| Z13 | solitaire มีคำ "พลอยเสริม" · "เม็ดข้าง" · "ทุกเม็ด" · "เม็ด 1" · "ซ้ายไปขวา" · ชื่อคู่ "X + Y" · `pair.title` ใน DOM/LINE | RTL + unit line-message ทุกโหมดของ solitaire |
+| Z14 | `c` ผิดของ solitaire: `g.a` · `garnet` · `cz` · `G` · `gg` · `g.` · `.g` · ยาว > 64 · array | `parseOwnSlotsParam(raw, "solitaire")` → null (ถือว่ายังไม่เลือก · ไม่ throw) |
+| Z15 | ข้อความ "ทุกแบบ" ที่ผูกกับราคาหลงเหลือ | test: `SHOWCASE_COPY` ไม่มี key `priceAllDesigns` · DOM ทุกแบบไม่มี `/บาท\s*ทุกแบบ/` |
+| Z16 | `solitaire-ring` เข้า first-load / ถูก import จากที่อื่นนอก showcase-rings | test import graph (§15.4) |
+| Z17 | หมายเหตุช่าง/ค่าประมาณจาก `SOLITAIRE` ถึงลูกค้า | ไม่พอร์ต `info`/`notes` · import graph |
+| Z18 | ไซซ์นอก 50–60 ของ solitaire ถึง LINE (49/61/57.5/NaN) | `isShowcaseSize` เดิม (Z2) — ขยาย loop เป็น 8 แบบ |
+
+**ต้องไม่พัง**: ลิงก์เดิมทุกรูปแบบของ 7 แบบ (`g` · `t&i&q&c&d` ไขว้ · `c` แถว N ตัวอักษร + preview ยาว 2 ของแถว · `r` ทั้ง 6) → ผลเดิม และ `buildShowcaseUrl` byte เดิม · ไขว้ 55–58 · CZ รายเม็ด (แถว) + CZ บน/ล่าง (ไขว้) · สลับแบบ 7→1→7 สีเดิมกลับ (`ownByCount`) · golden เดิม row-ring 6 แบบ + bypass ไม่ขยับ · ลิงก์ hub `/ring-builder` · test เดิมทั้งหมด (แก้เฉพาะสตริง 890 → `formatPriceThb(id)` ห้ามลบเคส) · X1–X8 · Y1–Y6 · Z1–Z10 เดิม
+
+### 15.7 Phase (Luke · ทำรวดเดียวได้ เรียงตามนี้)
+| # | ก้อน | เสร็จเมื่อ |
+|---|---|---|
+| S0 | คัดลอกรูป 4 ไฟล์ออกจาก Temp ทันที | ไฟล์อยู่ใน `_assets` |
+| S1 | ราคาต่อแบบ (map + ลบค่าเดิม + ทุกจุด §15.2 + test 890 เดิม) — ยังไม่มีแบบ 8 | typecheck + test เดิมผ่าน · 7 แบบเห็น 890 เหมือนเดิม |
+| S2 | `solitaire-ring.ts` + golden + showcase-rings + import graph | §15.4 |
+| S3 | `designs.ts` แบบ 8 + `isSingleStone` + branch 6 จุด §15.3 + parser `n >= 3` | Z13 Z14 · ลิงก์เดิมไม่พัง |
+| S4 | รูป + `_assets` + EXIF test | §15.5 |
+| S5 | `npx next build` (จด first-load size ก่อน/หลัง) · `npm test` · `npm run typecheck` | ผ่านทุกตัว |
+
+### 15.8 QA scope: **L + security quick review ก่อน merge**
+- ไม่ใช่ 💰 ตามนิยาม (ไม่เขียน DB · ไม่มีเอกสารภาษี · ข้อความ LINE ไม่ผูกมัดราคา แอดมินยืนยันเอง) แต่ **L** เพราะแตะของกลางของหน้า: `config.ts` (ราคาใช้ทั้ง /ring-builder 8 แบบ + /tools hub) · `formatOwnSlots`/`parseOwnSlotsParam` (ใช้ทุกแบบแถว) · `showcase-rings` (lazy chunk ทุกแบบ)
+- QA: 8 แบบ × (rec 1–3 / own / direct) × ไซซ์ขอบ 50/55/58/60 · สลับ solitaire↔ไขว้↔แถว 7 ในโหมดเลือกเอง · ลิงก์เก่า 5 รูปแบบ + ลิงก์ solitaire (`?r=solitaire` · `?c=g&d=own&r=solitaire`) · /tools hub · ราคาทุกจุด §15.2 · มือถือจริง: ลากหมุน solitaire · กดปุ่ม LINE จริง solitaire (790) + แบบเดิม 1 แบบ (890)
+- **security quick review ก่อน merge**: ราคาที่ลูกค้าเห็นเปลี่ยน + parser `c` แก้ — ดู Z3-ใหม่ / Z11 / Z12 / Z14 / Z16 + ค่าภายนอกใน diff (ไม่มี URL/LINE ID ใหม่ · 790/890 ชี้ที่มาได้ = คำสั่งเจ้าของ 24 พ.ย. / 18 พ.ย.)
+
+### 15.9 ความเสี่ยง
+- **branch `isSingleStone` ไม่ครบ** = ลูกค้าเห็น "พลอยเสริม (…)" หรือ "เม็ด 1 (ทุกเม็ด)" — Z13 ต้องวนทุกโหมดจริง ไม่ใช่แค่ rec
+- **พอร์ตผิดจุดเดียว = ทรงเพี้ยนเงียบ** → golden จากต้นฉบับคือด่านหลัก · เปิดดูจริงหลัง S2 (builder นี้ยังไม่เคยรันใน stack Next)
+- chip สูงขึ้นเพื่อใส่ราคา → ส่วนล่างดันลงบนมือถือ (stage sticky ≤ 40dvh เดิม ไม่กระทบ) — เจ้าของดูตอน UAT
+- พลอยเม็ดเดียวบนเฟรมทั้งวงจะดูเล็กบนจอ (ไม่แก้กล้อง เหมือน §6)
+- รูปต้นทางอยู่ใน Temp — หายได้ก่อน S0
+- `TODO_OWNER_DESIGN_NAME` ของแบบ 8 ยังค้าง (เหมือน 7 แบบเดิม) — QA จะรายงานตามกฎค่าภายนอก
+
+### 15.10 คำถามเจ้าของ (ไม่บล็อกการเริ่มงาน — ใช้ค่าตั้งต้นในวงเล็บไปก่อน)
+1. ~~ชื่อแบบ 8 สำหรับลูกค้า~~ → **เจ้าของตั้งแล้ว 24 พ.ย.: "เม็ดเดี่ยว (1 เม็ด)" — ดู §15.12**
+2. ~~หน้า hub เขียน "เริ่มต้น 790 บาท"~~ → **TL ตัดสินแล้ว: hub ไม่ใส่ราคา** (เจ้าของยังไม่ได้สั่งเพิ่ม)
+3. ลำดับ chip: เม็ดเดี่ยวไว้ใบสุดท้ายหรือใบแรก (ค่าตั้งต้นเดิม = ใบที่ 8) → **เจ้าของตอบแล้ว 24 พ.ย.: เรียงตามจำนวนเม็ด เม็ดเดี่ยวเป็นใบแรก — ดู §15.12**
+4. 790 รวมพลอยสีเหมือน 7 แบบไหม · พลอยกลมขนาดนี้มีครบ 5 ชนิด + CZ ขาวไหม (ค่าตั้งต้น: เลือกได้ 6 ตัวเลือกราคาเดียว)
+5. การ์ดเลือกแบบแสดงราคาทุกใบ — โอเคไหม (ค่าตั้งต้น: แสดง)
+
+### 15.11 บันทึกการ implement (Luke · 24 พ.ย. 69)
+- ทำตาม S0–S5 · commit แยกตาม S บน `feature/showcase-solitaire`
+- เบี่ยงจาก §15: (1) hub ไม่มีราคา + ไม่มี `minShowcasePriceThb` (มติ TL) (2) `SHOWCASE_PRICE_THB_BY_DESIGN` ใส่ solitaire ตอน S3 (S1 ยังไม่มีแบบ 8 ตามแผน) (3) `showcasePriceThb` ตรวจ id ด้วย `hasOwnProperty` (กัน `__proto__`/`constructor`) (4) copy ใหม่ที่ไม่อยู่ใน §15: `singleStoneEmptyHint` "แตะพลอยที่ชอบเพื่อดูบนแหวน" (ข้อความช่วยตอนยังไม่เลือก — เม็ดเดี่ยวใช้ `ownEmptyHintPerGem` ไม่ได้เพราะมี "ทุกเม็ด") (5) PlacementNote ของเม็ดเดี่ยวไม่ render ทั้งโหมดแนะนำและเลือกเอง
+- test เดิมที่แก้เกิน "890 → formatPriceThb": ลำดับ/จำนวนแบบ 7→8 · loop ที่ยืนยัน "พลอยหลัก/เสริม" ของแบบแถวหลายเม็ด กรอง `!isSingleStone` (เม็ดเดี่ยวมี test คำต้องห้ามของตัวเองใน `solitaire.test.ts` + `RingShowcase.solitaire.test.tsx`) · DOM ที่เคยเช็คราคา "ทั้งหน้า" ตัดการ์ดเลือกแบบออกก่อน (การ์ดแสดงราคาทุกแบบโดยตั้งใจ)
+
+### 15.12 มติเจ้าของหลัง UAT (24 พ.ย. 69 · คำต่อคำ: "เอาเม็ดเดียวขึ้นก่อนเป็นอันแรก เรียงตามจำนวนเม็ด ... ใช้ชื่อว่า เม็ดเดี่ยว (1 เม็ด)" · "ตรงรูปแหวน ... animation white dot เล็กๆ ขยับไปขยับมา ... ให้เลื่อนแหวนหมุนดูได้")
+ทับ §15.10 ข้อ 1 และ 3 · ทับ "ใบที่ 8" ใน §15 ทุกจุด
+1. **ลำดับการ์ด**: `DESIGNS` (designs.ts · แหล่งเดียว) เรียงตามจำนวนเม็ดที่ลูกค้าเห็นในชื่อ (`ownSlotCount`: ไขว้ = 2) น้อย→มาก เสถียร → `solitaire · bypass2 · trinity · channel4 · scroll6 · channel6 · bar7 · small7`
+   - 🔴 **แบบเริ่มต้นเมื่อไม่มี `r` ยังเป็นไขว้** (`DEFAULT_DESIGN_ID` ไม่ผูกกับ `DESIGNS[0]`) — ลิงก์ที่แจกแล้ว + ลิงก์จาก quiz ไม่เปลี่ยนผล · id `solitaire` ใน URL ไม่เปลี่ยน · มีแค่ลำดับการ์ดที่เปลี่ยน
+2. **ชื่อ**: `name` = `shortName` = "เม็ดเดี่ยว (1 เม็ด)" (ลบ `TODO_OWNER_DESIGN_NAME` ของแบบนี้ · อีก 7 แบบยังเป็นชื่อชั่วคราว) — ขึ้นการ์ด · สรุป · aria · LINE (ทุกจุดอ่านจาก `designs.ts`)
+3. **drag hint** (`RingStage.tsx` + keyframes `gq-hint-swipe`/`gq-hint-life` ใน `tailwind.config.ts`): จุดขาว 15px + เงาบาง · กลาง stage ค่อนล่าง (top 78%) · เลื่อน ±40px ease-in-out × 3 รอบ (1.9s/รอบ) แล้ว fade ใน 5.8s · CSS ล้วน ไม่เพิ่ม dependency · `pointer-events-none` + `aria-hidden`
+   - แสดงเมื่อ `mode === "ready"` และไม่ `designFailed` เท่านั้น (ไม่แสดงตอน loading/ไม่รองรับ 3D/context lost/fallback รูป)
+   - หายเมื่อ pointerdown/touchstart บน stage ครั้งแรก หรือ timer 6 วิ · state `hintDone` อยู่ที่ RingStage (ไม่ remount ตอนเปลี่ยนแบบ → แสดงครั้งเดียวต่อการโหลดหน้า) · ไม่ใช้ storage
+   - `prefers-reduced-motion: reduce` = **ไม่แสดงเลย** (จุดนิ่งไม่สื่อว่าลากได้ และดูเหมือนฝุ่นบนภาพ · ป้าย "ลากเพื่อหมุน" เดิมยังอยู่) — เช็คด้วย `matchMedia` ใน JS เพื่อให้ test ได้
+   - ไม่แตะ gl-renderer / row-ring / solitaire-ring
+4. test: `designs.test.ts` (ลำดับ · ชื่อ · default=ไขว้) · `RingShowcase.designs/solitaire*.test.tsx` (ลำดับการ์ด · checked เริ่มต้น = ใบที่ 2) · `line-message.test.ts` (ชื่อใหม่) · `RingShowcase.draghint.test.tsx` (hint ใหม่ทั้งชุด)

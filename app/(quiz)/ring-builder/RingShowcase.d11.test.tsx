@@ -6,6 +6,7 @@ import userEvent from "@testing-library/user-event";
 import "@testing-library/jest-dom/vitest";
 import { GEM_QUIZ_PAIRS, GEM_QUIZ_STONES } from "@/lib/gem-quiz/config";
 import { EMPTY_SHOWCASE_PARAMS, parseTableParam, readShowcaseParams, type IntentionTable, type ShowcaseParams } from "@/lib/ring-builder/showcase/quiz-link";
+import { formatPriceThb, showcasePriceThb } from "@/lib/ring-builder/showcase/config";
 import RingShowcasePage from "./page";
 import { RingShowcaseClient } from "./RingShowcaseClient";
 
@@ -147,8 +148,8 @@ describe("โหมดเลือกพลอยเอง", () => {
             expect(text).toContain("คู่นี้ยังไม่มีคำอธิบายเฉพาะคู่ แสดงคำอธิบายรายเม็ดแทน");
           }
         }
-        // Y3: ราคาเดียว 890 ทุกคู่
-        expect([...lineMessage().matchAll(/(\d[\d,]*)\s*บาท/g)].map((m) => m[1])).toEqual(["890"]);
+        // Y3: ราคาเดียว (ของแบบเริ่มต้น) ทุกคู่
+        expect([...lineMessage().matchAll(/(\d[\d,]*)\s*บาท/g)].map((m) => m[1])).toEqual([String(showcasePriceThb("bypass2"))]);
         expect(text).not.toContain("เพชร");
         expect(text).not.toMatch(/undefined|NaN|\[object/);
       }
@@ -177,7 +178,7 @@ describe("page: key ใหม่ผ่าน page จริง · ราคา�
   it("?price=1&c=...&d=own ไม่เปลี่ยนราคา · c ผิดรูปถูกทิ้ง", async () => {
     const el = await RingShowcasePage({ searchParams: Promise.resolve({ price: "1", c: "garnet.citrine", d: "own" }) });
     render(el);
-    expect(lineMessage()).toContain("ราคา 890 บาท");
+    expect(lineMessage()).toContain(`ราคา ${formatPriceThb("bypass2")}`);
     cleanup();
     const bad = await RingShowcasePage({ searchParams: Promise.resolve({ c: "cz_white.garnet", d: "own", t: "x", i: "<b>" }) });
     const { container } = render(bad);

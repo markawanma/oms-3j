@@ -117,7 +117,7 @@ describe("QA: CTA หน้าผล quiz สร้าง href ถูกทุ�
 describe("QA: รูป _assets ไม่มี EXIF / GPS / XMP / comment (มติ §7c)", () => {
   const dir = join(process.cwd(), "app", "(quiz)", "ring-builder", "_assets");
   const files = readdirSync(dir).filter((f) => f.endsWith(".jpg"));
-  it("พบ 29 รูป (ไขว้ 5 + อีก 6 แบบ x 4)", () => expect(files.length).toBe(29));
+  it("พบ 33 รูป (ไขว้ 5 + อีก 7 แบบ x 4 · ทุกไฟล์ใน _assets ผ่านด่าน EXIF ด้านล่าง)", () => expect(files.length).toBe(33));
   for (const f of files) {
     it(`${f}: ไม่มี APPn ที่พก metadata ส่วนบุคคล`, () => {
       const buf = readFileSync(join(dir, f));

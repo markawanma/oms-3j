@@ -3,8 +3,8 @@ import { describe, expect, it } from "vitest";
 import type { GemQuizStoneCode } from "@/lib/gem-quiz/config";
 import { CZ_WHITE } from "../config";
 import { CZ_TINT, czIconColors, slotTints, stoneTint } from "../viewer/gem-colors";
-import { SHOWCASE_PRICE_THB, SHOWCASE_COPY } from "./config";
-import { DESIGNS, ownSlotCount } from "./designs";
+import { showcasePriceThb, SHOWCASE_COPY } from "./config";
+import { DESIGNS, ownSlotCount, isSingleStone } from "./designs";
 import { buildShowcaseLineMessage, resolveChoice } from "./line-message";
 import { fillAll, fitOwnToCount, formatOwnSlots, isAllCz, isOwnSlots, ownSlotLines, ownSlotsAria } from "./own-slots";
 import { buildShowcaseUrl, CZ_SLOT, parseOwnParam, parseOwnSlotsParam, readShowcaseParams, type SlotCode } from "./quiz-link";
@@ -13,7 +13,8 @@ import { describeOwnSlots } from "./sets";
 const G: GemQuizStoneCode = "garnet";
 const A: GemQuizStoneCode = "amethyst";
 const Z = CZ_SLOT;
-const ROWS = DESIGNS.filter((d) => d.layout.kind === "row");
+// แบบแถวหลายเม็ด (≥3) — เม็ดเดี่ยวมีข้อความ/ข้อห้ามต่างออกไป (Z13) ทดสอบแยกใน solitaire.test.ts
+const ROWS = DESIGNS.filter((d) => d.layout.kind === "row" && !isSingleStone(d));
 const row = (n: number) => ROWS.find((d) => ownSlotCount(d) === n)!;
 const rowOf = (n: number) => row(n).id;
 
@@ -94,13 +95,13 @@ describe("own-slots helpers", () => {
 });
 
 describe("LINE + resolveChoice", () => {
-  it("ผสม CZ: ราคา 890 ตัวเดียว · มี CZ ขาวในกลุ่มช่วง · ไม่มี เพชร", () => {
+  it("ผสม CZ: ราคาของแบบตัวเดียว · มี CZ ขาวในกลุ่มช่วง · ไม่มี เพชร", () => {
     const d = row(6);
     const msg = buildShowcaseLineMessage({ designId: d.id, choice: { kind: "ownSlots", codes: [G, G, Z, Z, A, A] }, size: null })!;
     expect(msg).toContain("เม็ด 3–4: CZ ขาว");
     expect(msg).not.toContain("เพชร");
     expect(msg.match(/ราคา [^\n]*/g)).toHaveLength(1);
-    expect(msg).toContain(SHOWCASE_PRICE_THB.toLocaleString("en-US"));
+    expect(msg).toContain(showcasePriceThb(d.id).toLocaleString("en-US"));
   });
   it("ทุกเม็ด CZ = ข้อความเดียว", () => {
     const d = row(7);

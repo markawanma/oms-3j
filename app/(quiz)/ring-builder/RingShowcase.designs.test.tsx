@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import "@testing-library/jest-dom/vitest";
-import { DESIGNS, getShowcaseDesign, type ShowcaseDesignId } from "@/lib/ring-builder/showcase/designs";
+import { DESIGNS, getShowcaseDesign, isSingleStone, type ShowcaseDesignId } from "@/lib/ring-builder/showcase/designs";
 import { EMPTY_SHOWCASE_PARAMS, parseTableParam, type IntentionTable, type ShowcaseParams } from "@/lib/ring-builder/showcase/quiz-link";
 import type { LastMeasuredSize } from "@/lib/ring-builder/last-size";
 import { SHOWCASE_PHOTOS } from "./_assets";
@@ -14,8 +14,9 @@ import { SHOWCASE_PHOTOS } from "./_assets";
 // รูปจริงของทุกแบบทดสอบแยกที่ RingShowcase.photos.test.tsx (ไม่ mock)
 vi.mock("./_assets", async (orig) => {
   const m = await orig<typeof import("./_assets")>();
-  return { ...m, SHOWCASE_PHOTOS: { ...m.SHOWCASE_PHOTOS, trinity: [], scroll6: [], channel4: [], channel6: [], bar7: [], small7: [] } };
+  return { ...m, SHOWCASE_PHOTOS: { ...m.SHOWCASE_PHOTOS, trinity: [], scroll6: [], channel4: [], channel6: [], bar7: [], small7: [], solitaire: [] } };
 });
+import { showcasePriceThb, formatPriceThb } from "@/lib/ring-builder/showcase/config";
 import { RingShowcaseClient } from "./RingShowcaseClient";
 
 const lastSizeMock = vi.hoisted(() => ({ read: vi.fn<() => LastMeasuredSize | null>(() => null) }));
@@ -44,20 +45,23 @@ function lineMessage(): string {
   const href = lineHref();
   return decodeURIComponent(href.slice(href.indexOf("/?") + 2));
 }
-const designRadio = (id: ShowcaseDesignId) => screen.getByRole("radio", { name: getShowcaseDesign(id).name });
+const designRadio = (id: ShowcaseDesignId) => screen.getByRole("radio", { name: `${getShowcaseDesign(id).name} ${formatPriceThb(id)}` });
 const designGroup = () => screen.getByRole("radiogroup", { name: "เลือกแบบแหวน" });
 const sizeGroup = () => screen.getByRole("radiogroup", { name: /^เลือกไซซ์/ });
 const modeRadio = (name: string) => screen.getByRole("radio", { name });
 
 describe("DesignPicker", () => {
-  it("7 radio เรียงตามแบบ · ไขว้ถูกเลือกเริ่มต้น · roving tabindex · ปัดดู 7 แบบ", () => {
+  it("8 radio เรียงตามแบบ · ไขว้ถูกเลือกเริ่มต้น · roving tabindex · ปัดดู 8 แบบ", () => {
     render(<RingShowcaseClient params={EMPTY_SHOWCASE_PARAMS} />);
     const radios = within(designGroup()).getAllByRole("radio");
-    expect(radios).toHaveLength(7);
-    expect(radios.map((r) => r.getAttribute("aria-label"))).toEqual(DESIGNS.map((d) => d.name));
-    expect(radios.map((r) => r.getAttribute("aria-checked"))).toEqual(["true", "false", "false", "false", "false", "false", "false"]);
-    expect(radios.map((r) => r.getAttribute("tabindex"))).toEqual(["0", "-1", "-1", "-1", "-1", "-1", "-1"]);
-    expect(screen.getByText("ปัดดูทั้ง 7 แบบ")).toBeInTheDocument();
+    expect(radios).toHaveLength(DESIGNS.length);
+    expect(DESIGNS).toHaveLength(8);
+    expect(radios.map((r) => r.getAttribute("aria-label"))).toEqual(DESIGNS.map((d) => `${d.name} ${formatPriceThb(d.id)}`));
+    // D1.3: การ์ดแสดงราคาของแบบตัวเองทุกใบ
+    expect(radios.map((r) => /(\d[\d,]*\s*บาท)/.exec(r.textContent ?? "")?.[1])).toEqual(DESIGNS.map((d) => formatPriceThb(d.id)));
+    expect(radios.map((r) => r.getAttribute("aria-checked"))).toEqual(["false", "true", ...Array(6).fill("false")]); // ค่าเริ่มต้น = ไขว้ (ใบที่ 2 หลังเรียงตามจำนวนเม็ด)
+    expect(radios.map((r) => r.getAttribute("tabindex"))).toEqual(["-1", "0", ...Array(6).fill("-1")]);
+    expect(screen.getByText("ปัดดูทั้ง 8 แบบ")).toBeInTheDocument();
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("แหวนพลอยของ 3J Jewelry");
   });
   it("คีย์บอร์ด: ลูกศร/Home/End เลือก+โฟกัส · เรียก scrollIntoView เมื่อโฟกัสย้าย", async () => {
@@ -70,11 +74,11 @@ describe("DesignPicker", () => {
     expect(radios[1]).toHaveFocus();
     expect(Element.prototype.scrollIntoView).toHaveBeenCalled();
     await u.keyboard("{End}");
-    expect(radios[6]).toHaveAttribute("aria-checked", "true");
+    expect(radios[7]).toHaveAttribute("aria-checked", "true");
     await u.keyboard("{ArrowRight}");
     expect(radios[0]).toHaveAttribute("aria-checked", "true"); // วนรอบ
     await u.keyboard("{ArrowLeft}");
-    expect(radios[6]).toHaveAttribute("aria-checked", "true");
+    expect(radios[7]).toHaveAttribute("aria-checked", "true");
     await u.keyboard("{Home}");
     expect(radios[0]).toHaveAttribute("aria-checked", "true");
   });
@@ -82,7 +86,7 @@ describe("DesignPicker", () => {
     const u = user();
     render(<RingShowcaseClient params={EMPTY_SHOWCASE_PARAMS} />);
     await u.click(designRadio("channel4"));
-    expect(screen.getAllByRole("status").some((el) => el.textContent === "เลือกแบบ แหวนฝังล็อค 4 เม็ด แล้ว")).toBe(true);
+    expect(screen.getAllByRole("status").some((el) => el.textContent === `เลือกแบบ แหวนฝังล็อค 4 เม็ด แล้ว · ${formatPriceThb("channel4")}`)).toBe(true);
   });
   it("r ใน URL → เปิดที่แบบนั้น (ไซซ์ 50–60 ครบ 11 ปุ่ม) · r ผิด/ไม่มี = ไขว้ (55–58)", () => {
     const { unmount } = render(<RingShowcaseClient params={{ ...EMPTY_SHOWCASE_PARAMS, ring: "small7" }} />);
@@ -211,7 +215,7 @@ describe("Z2 — ไซซ์ข้ามแบบ (effectiveSize)", () => {
 });
 
 describe("ทุกแบบ × ทุกโหมด — Z3 Z4 Z10 (DOM จริง)", () => {
-  it("ราคา 890 ค่าเดียวทั้งจอและ LINE · ไม่มีคำว่าเพชร · ลิงก์ออกได้แค่ LINE/ring-size/gem-quiz", async () => {
+  it("ราคาของแบบที่เลือกค่าเดียวทั้งจอ (นอกการ์ดเลือกแบบ) และ LINE · ไม่มีคำว่าเพชร · ลิงก์ออกได้แค่ LINE/ring-size/gem-quiz", async () => {
     const u = user();
     const { container } = render(<RingShowcaseClient params={QUIZ} />);
     for (const d of DESIGNS) {
@@ -219,8 +223,15 @@ describe("ทุกแบบ × ทุกโหมด — Z3 Z4 Z10 (DOM จร�
       for (const mode of ["แบบแนะนำ", "เลือกพลอยเอง"]) {
         await u.click(modeRadio(mode));
         const text = container.textContent ?? "";
-        expect([...text.matchAll(/(\d[\d,]*)\s*บาท/g)].map((m) => m[1]).every((p) => p === "890")).toBe(true);
-        expect([...lineMessage().matchAll(/(\d[\d,]*)\s*บาท/g)].map((m) => m[1])).toEqual(["890"]);
+        // Z3-ใหม่: การ์ดเลือกแบบแสดงราคาของทุกแบบ (ตั้งใจ) — ตัดออกก่อน แล้วที่เหลือ (หัวหน้า + สรุป) ต้องเป็นราคาของแบบที่เลือกค่าเดียว
+        const pickerText = designRadio(d.id).closest('[role="radiogroup"]')?.textContent ?? "";
+        const rest = text.replace(pickerText, "");
+        const own = String(showcasePriceThb(d.id));
+        const restPrices = [...rest.matchAll(/(\d[\d,]*)\s*บาท/g)].map((m) => m[1]);
+        expect(restPrices.length).toBeGreaterThanOrEqual(2); // หัวหน้า + สรุป
+        expect(restPrices.every((p) => p === own)).toBe(true);
+        expect(rest).not.toMatch(/บาท\s*ทุกแบบ/);
+        expect([...lineMessage().matchAll(/(\d[\d,]*)\s*บาท/g)].map((m) => m[1])).toEqual([own]);
         expect(text).not.toMatch(/เพชร|undefined|NaN|\[object/);
         const hrefs = [...container.querySelectorAll("a[href]")].map((a) => a.getAttribute("href") ?? "");
         // P3: "/" = ลิงก์กลับหน้ารวมเครื่องมือ (ToolsHubLink) — ต้องมีตัวเดียวเท่านั้น (ไม่ใช่ prefix/origin อื่น)
@@ -265,8 +276,14 @@ describe("ทุกแบบ × ทุกโหมด — Z3 Z4 Z10 (DOM จร�
       await u.click(designRadio(d.id));
       const summary = screen.getByRole("heading", { name: "สรุปที่เลือก" }).parentElement as HTMLElement;
       expect(within(summary).getByText(d.name)).toBeInTheDocument();
-      expect(within(summary).getByText(`พลอยหลัก (${d.positions.main})`)).toBeInTheDocument();
-      expect(within(summary).getByText(`พลอยเสริม (${d.positions.sub})`)).toBeInTheDocument();
+      if (isSingleStone(d)) {
+        // เม็ดเดี่ยว (Z13): แถวเดียว "พลอยเม็ดเดี่ยว" · ไม่มีหลัก/เสริม
+        expect(within(summary).getByText("พลอยเม็ดเดี่ยว")).toBeInTheDocument();
+        expect(within(summary).queryByText(/พลอยหลัก|พลอยเสริม/)).toBeNull();
+      } else {
+        expect(within(summary).getByText(`พลอยหลัก (${d.positions.main})`)).toBeInTheDocument();
+        expect(within(summary).getByText(`พลอยเสริม (${d.positions.sub})`)).toBeInTheDocument();
+      }
       expect(within(summary).queryByText("CZ เล็ก") !== null).toBe(d.extraCz > 0);
     }
   });
@@ -281,7 +298,7 @@ describe("Z6 — รูปจริงไม่ข้ามแบบ + empty sta
     expect(imgs.every((s) => BYPASS_SRCS.includes(s ?? ""))).toBe(true);
     expect(screen.getByText(/ภาพถ่ายเป็นตัวอย่างแหวนชิ้นหนึ่ง/)).toBeInTheDocument();
   });
-  it("6 แบบที่ไม่มีรูป: ไม่มี <img> เลยทั้งหน้า · stage = ภาพประกอบ + ป้าย 'ไม่ใช่ภาพจริง' + ข้อความ · gallery = การ์ดบอกตรงๆ · ไม่มี photosNote/ปุ่มสไลด์", async () => {
+  it("7 แบบที่ไม่มีรูป (mock): ไม่มี <img> เลยทั้งหน้า · stage = ภาพประกอบ + ป้าย 'ไม่ใช่ภาพจริง' + ข้อความ · gallery = การ์ดบอกตรงๆ · ไม่มี photosNote/ปุ่มสไลด์", async () => {
     const u = user();
     const { container } = render(<RingShowcaseClient params={EMPTY_SHOWCASE_PARAMS} />);
     for (const d of DESIGNS.filter((x) => x.id !== "bypass2")) {

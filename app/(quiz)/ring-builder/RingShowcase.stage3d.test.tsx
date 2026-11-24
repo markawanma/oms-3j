@@ -16,6 +16,7 @@ vi.mock("./_assets", async (orig) => {
   const m = await orig<typeof import("./_assets")>();
   return { ...m, SHOWCASE_PHOTOS: { ...m.SHOWCASE_PHOTOS, trinity: [], scroll6: [], channel4: [], channel6: [], bar7: [], small7: [] } };
 });
+import { formatPriceThb } from "@/lib/ring-builder/showcase/config";
 import { RingShowcaseClient } from "./RingShowcaseClient";
 
 const h = vi.hoisted(() => {
@@ -58,7 +59,7 @@ beforeEach(() => {
   Element.prototype.scrollIntoView = vi.fn();
 });
 
-const designRadio = (id: ShowcaseDesignId) => screen.getByRole("radio", { name: getShowcaseDesign(id).name });
+const designRadio = (id: ShowcaseDesignId) => screen.getByRole("radio", { name: `${getShowcaseDesign(id).name} ${formatPriceThb(id)}` });
 const stage = () => screen.getByRole("region", { name: "ภาพแหวน" });
 async function mounted() {
   await waitFor(() => expect(h.createRingRenderer).toHaveBeenCalled());

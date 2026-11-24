@@ -4,8 +4,8 @@ import { join, relative } from "node:path";
 import { describe, expect, it } from "vitest";
 import { GEM_QUIZ_PAIRS } from "@/lib/gem-quiz/config";
 import { RING_BUILDER_SIZES } from "../config";
-import { SHOWCASE_COPY, SHOWCASE_LEAD_DAYS, SHOWCASE_PRICE_THB, formatPriceThb, leadTimeLabel } from "./config";
-import { DESIGNS, getShowcaseDesign, sizeRange } from "./designs";
+import { SHOWCASE_COPY, SHOWCASE_LEAD_DAYS, SHOWCASE_PRICE_THB_BY_DESIGN, formatPriceThb, showcasePriceThb, leadTimeLabel } from "./config";
+import { DESIGNS, SHOWCASE_DESIGN_IDS, getShowcaseDesign, sizeRange } from "./designs";
 
 const ROOT = process.cwd();
 
@@ -32,14 +32,26 @@ function code(src: string): string {
 }
 
 describe("ค่าจากเจ้าของ (12–18 พ.ย. 69)", () => {
-  it("ราคา 890 ทุกแบบ · ไซซ์ไขว้ 55–58 / แบบแถว 50–60 · pre-order 21 วัน", () => {
-    expect(SHOWCASE_PRICE_THB).toBe(890);
+  it("ราคาต่อแบบ (เจ้าของ 18 พ.ย. = 890 · 24 พ.ย. เม็ดเดี่ยว = 790) · ไซซ์ไขว้ 55–58 / แบบแถว 50–60 · pre-order 21 วัน", () => {
+    // ค่าเจ้าของถูกล็อกเป็นตัวเลขดิบที่นี่ที่เดียว — test อื่นเทียบผ่าน formatPriceThb(id)
+    for (const d of DESIGNS) expect(showcasePriceThb(d.id), d.id).toBe((d.id as string) === "solitaire" ? 790 : 890);
     expect([...getShowcaseDesign("bypass2").sizes]).toEqual([55, 56, 57, 58]);
     expect(sizeRange("bypass2")).toEqual({ min: 55, max: 58 });
     for (const d of DESIGNS.filter((x) => x.id !== "bypass2")) expect(sizeRange(d.id)).toEqual({ min: 50, max: 60 });
     expect(SHOWCASE_LEAD_DAYS).toBe(21);
-    expect(formatPriceThb()).toBe("890 บาท");
+    expect(formatPriceThb("bypass2")).toBe("890 บาท");
     expect(leadTimeLabel()).toBe("พรีออเดอร์ ทำภายใน 21 วัน");
+  });
+  it("Z11/Z15: ทุกแบบมีราคา integer > 0 · id นอก whitelist throw · ไม่มี priceAllDesigns", () => {
+    for (const id of SHOWCASE_DESIGN_IDS) {
+      expect(Number.isInteger(SHOWCASE_PRICE_THB_BY_DESIGN[id]) && SHOWCASE_PRICE_THB_BY_DESIGN[id] > 0, id).toBe(true);
+      expect(formatPriceThb(id)).toBe(`${showcasePriceThb(id)} บาท`);
+    }
+    expect(Object.keys(SHOWCASE_PRICE_THB_BY_DESIGN).sort()).toEqual([...SHOWCASE_DESIGN_IDS].sort());
+    for (const bad of ["", "price", "__proto__", "constructor", "toString", "BYPASS2", undefined, null, 890]) {
+      expect(() => showcasePriceThb(bad as never), String(bad)).toThrow();
+    }
+    expect("priceAllDesigns" in SHOWCASE_COPY).toBe(false);
   });
   it("ไซซ์อยู่ในช่วงร้าน 45–68 (ล็อกกับ RING_BUILDER_SIZES ซึ่ง parity กับ DB)", () => {
     for (const d of DESIGNS) {
@@ -81,7 +93,7 @@ describe("copy-guard ของไฟล์ที่ถึงลูกค้า",
     }
     expect(hits).toEqual([]);
   });
-  it("ราคาไม่ถูกพิมพ์ซ้ำนอก config: ไม่มีเลข 890 ในไฟล์อื่นของหน้า", () => {
+  it("ราคาไม่ถูกพิมพ์ซ้ำนอก config: ไม่มีเลขราคา 800/790/890 ในไฟล์อื่นของหน้า", () => {
     const hits: string[] = [];
     for (const f of FILES) {
       if (rel(f) === "lib/ring-builder/showcase/config.ts") continue;

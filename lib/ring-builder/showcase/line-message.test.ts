@@ -3,8 +3,8 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { GEM_QUIZ_STONE_CODES } from "@/lib/gem-quiz/config";
 import { lineOaMessageUrl } from "@/lib/shop/line";
-import { SHOWCASE_PRICE_THB } from "./config";
-import { DESIGNS, SHOWCASE_DESIGN_IDS, getShowcaseDesign, type ShowcaseDesignId } from "./designs";
+import { showcasePriceThb } from "./config";
+import { DESIGNS, SHOWCASE_DESIGN_IDS, getShowcaseDesign, isSingleStone, type ShowcaseDesignId } from "./designs";
 import { buildShowcaseLineHref, buildShowcaseLineMessage, isShowcaseSize, resolveChoice, type ShowcaseChoice } from "./line-message";
 
 const rec = (index: number, top = "citrine", bottom = "garnet") => ({ kind: "rec", index, top, bottom }) as unknown as ShowcaseChoice;
@@ -125,7 +125,11 @@ describe("ทุกแบบ × ทุก choice — ข้อความถู
           const m = buildShowcaseLineMessage({ designId: d.id, choice, size }) as string;
           expect(m).toContain(`แบบแหวน: ${d.name}\n`);
           // D1.2a: แบบแถว + เลือกเองที่ยังไม่เลือก = โหมดรายเม็ด → ไม่มีบรรทัดหลัก/เสริม (contract เปลี่ยน)
-          if (d.layout.kind === "row" && (choice as { unpicked?: boolean }).unpicked === true) expect(m).not.toMatch(/พลอยหลัก|พลอยเสริม/);
+          if (isSingleStone(d)) {
+            // เม็ดเดี่ยว (D1.3 · Z13): ไม่มีหลัก/เสริม/CZ เล็ก/ซ้ายไปขวา · เม็ดเดียว "พลอยเม็ดเดี่ยว: …" (ยกเว้นยังไม่เลือก)
+            expect(m).not.toMatch(/พลอยหลัก|พลอยเสริม|เม็ดข้าง|ทุกเม็ด|เม็ด 1|ซ้ายไปขวา/);
+            if ((choice as { unpicked?: boolean }).unpicked !== true) expect(m).toContain("พลอยเม็ดเดี่ยว: ");
+          } else if (d.layout.kind === "row" && (choice as { unpicked?: boolean }).unpicked === true) expect(m).not.toMatch(/พลอยหลัก|พลอยเสริม/);
           else {
             expect(m).toContain(`พลอยหลัก (${d.positions.main})`);
             expect(m).toContain(`พลอยเสริม (${d.positions.sub})`);
@@ -134,8 +138,8 @@ describe("ทุกแบบ × ทุก choice — ข้อความถู
           else expect(m).not.toContain("CZ เล็ก");
           if (d.layout.kind === "row") expect(m).not.toMatch(/เม็ดบน|เม็ดล่าง|พลอยบน|พลอยล่าง/);
           expect(m).not.toContain("ทั้ง 2 เม็ด");
-          // Z3: ราคาตัวเดียว = 890
-          expect([...m.matchAll(/(\d[\d,]*)\s*บาท/g)].map((x) => x[1])).toEqual([String(SHOWCASE_PRICE_THB)]);
+          // Z3-ใหม่: ราคาตัวเดียว = ราคาของแบบนั้น
+          expect([...m.matchAll(/(\d[\d,]*)\s*บาท/g)].map((x) => x[1])).toEqual([String(showcasePriceThb(d.id))]);
           // Y7: ชุด n ⇔ ชุดแนะนำเท่านั้น
           const isRec = (choice as { kind: string }).kind === "rec";
           expect(/ชุด \d/.test(m)).toBe(isRec);
@@ -157,11 +161,11 @@ describe("ทุกแบบ × ทุก choice — ข้อความถู
         for (const b of GEM_QUIZ_STONE_CODES) {
           for (const choice of [own(a, b), rec(2, a, b)]) {
             const m = buildShowcaseLineMessage({ designId: d.id, choice, size: d.sizes[1] }) as string;
-            expect([...m.matchAll(/(\d[\d,]*)\s*บาท/g)].map((x) => x[1])).toEqual([String(SHOWCASE_PRICE_THB)]);
+            expect([...m.matchAll(/(\d[\d,]*)\s*บาท/g)].map((x) => x[1])).toEqual([String(showcasePriceThb(d.id))]);
             n++;
           }
         }
-    expect(n).toBe(7 * 50);
+    expect(n).toBe(DESIGNS.length * 50);
   });
 });
 
@@ -201,5 +205,13 @@ describe("buildShowcaseLineHref", () => {
   it("source ของ showcase ไม่มี LINE ID/URL ฮาร์ดโค้ด", () => {
     const src = readFileSync(new URL("./line-message.ts", import.meta.url), "utf8");
     expect(src).not.toMatch(/line\.me|lin\.ee|@3j|3jjewelry/i);
+  });
+});
+
+describe("ชื่อแบบเม็ดเดี่ยวที่เจ้าของตั้ง (24 พ.ย.) ในข้อความ LINE", () => {
+  it('บรรทัด "แบบแหวน:" = "เม็ดเดี่ยว (1 เม็ด)" · ไม่มีชื่อชั่วคราวเดิม', () => {
+    const m = buildShowcaseLineMessage({ designId: "solitaire", choice: { kind: "direct" }, size: 55 }) as string;
+    expect(m).toContain("แบบแหวน: เม็ดเดี่ยว (1 เม็ด)\n");
+    expect(m).not.toContain("6 เตย");
   });
 });

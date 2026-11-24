@@ -4,6 +4,7 @@
 import { GEM_QUIZ_STONE_BY_CODE, type GemQuizStoneCode } from "@/lib/gem-quiz/config";
 import { mainIndexes, seedFromPair } from "./designs";
 import { CZ_WHITE } from "../config";
+import { SHOWCASE_COPY } from "./config";
 import { CZ_SLOT, isSlotCode, type SlotCode } from "./quiz-link";
 
 /** รหัสต่อเม็ด = พลอย 5 ชนิด หรือ "cz" (CZ ขาว) */
@@ -74,6 +75,8 @@ function rangeLabel(from: number, to: number): string {
 export function formatOwnSlots(codes: unknown): OwnSlotRow[] | null {
   if (!Array.isArray(codes) || codes.length === 0 || !isOwnSlots(codes, codes.length)) return null;
   const label = slotLabel;
+  // เม็ดเดี่ยว (ยาว 1 — มีได้เฉพาะแบบเม็ดเดี่ยว): ไม่มี "เม็ด 1" / "(ทุกเม็ด)" / "CZ ขาวทุกเม็ด" (Z13)
+  if (codes.length === 1) return [{ label: SHOWCASE_COPY.singleStoneLabel, value: label(codes[0]) }];
   const runs: { from: number; to: number; code: SlotCode }[] = [];
   codes.forEach((code, i) => {
     const last = runs[runs.length - 1];

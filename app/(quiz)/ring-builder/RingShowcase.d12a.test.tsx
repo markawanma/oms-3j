@@ -7,6 +7,7 @@ import userEvent from "@testing-library/user-event";
 import "@testing-library/jest-dom/vitest";
 import { getShowcaseDesign, ownSlotCount, type ShowcaseDesignId } from "@/lib/ring-builder/showcase/designs";
 import { EMPTY_SHOWCASE_PARAMS, parseTableParam, readShowcaseParams, type IntentionTable, type ShowcaseParams } from "@/lib/ring-builder/showcase/quiz-link";
+import { formatPriceThb, showcasePriceThb } from "@/lib/ring-builder/showcase/config";
 import { RingShowcaseClient } from "./RingShowcaseClient";
 
 afterEach(cleanup);
@@ -20,7 +21,7 @@ const TABLE = parseTableParam("gac.acp.cpb.bgc.pab.gpa") as IntentionTable;
 const QUIZ: ShowcaseParams = { ...EMPTY_SHOWCASE_PARAMS, table: TABLE, intention: "love" };
 const user = () => userEvent.setup();
 
-const designRadio = (id: ShowcaseDesignId) => screen.getByRole("radio", { name: getShowcaseDesign(id).name });
+const designRadio = (id: ShowcaseDesignId) => screen.getByRole("radio", { name: `${getShowcaseDesign(id).name} ${formatPriceThb(id)}` });
 const modeRadio = (name: string) => screen.getByRole("radio", { name });
 const slotBar = () => screen.getByRole("radiogroup", { name: "เลือกพลอยทีละเม็ด" });
 const slot = (n: number) => within(slotBar()).getByRole("radio", { name: new RegExp(`^เม็ดที่ ${n} `) });
@@ -67,7 +68,7 @@ describe("D1.2a — แถบเม็ด + เลือกทีละเม็
     const msg = lineMessage();
     expect(msg).toContain("พลอย: เลือกพลอยเอง (รายเม็ด · ซ้ายไปขวา มองตรงหน้าแหวน)");
     expect(msg).toContain("เม็ด 1–3: โกเมน\nเม็ด 4: ซิทริน\nเม็ด 5–7: โกเมน");
-    expect(msg.match(/\d[\d,]*\s*บาท/g)).toEqual(["890 บาท"]);
+    expect(msg.match(/\d[\d,]*\s*บาท/g)).toEqual([formatPriceThb("small7")]);
     expect(msg).not.toMatch(/หลัก|เสริม|เพชร|ชุด \d/);
     expect(screen.getByRole("heading", { name: "เม็ดที่ 4 · ซิทริน" })).toBeInTheDocument();
     expect(screen.getAllByRole("status").some((el) => el.textContent === "เม็ดที่ 4 เป็นซิทรินแล้ว")).toBe(true);
@@ -250,11 +251,14 @@ describe("D1.2a — ต้องไม่พัง", () => {
     expect(lineMessage()).toMatch(/พลอย: ชุด 1\nพลอยหลัก \(เม็ดกลาง\): .+ · พลอยเสริม \(เม็ดข้าง\): /);
     expect(screen.getAllByText(/จากแบบทดสอบ/).length).toBeGreaterThan(0);
   });
-  it("ราคา 890 ตัวเดียวในหน้า เมื่ออยู่โหมดรายเม็ด (ไม่มีราคาต่อเม็ด)", async () => {
+  it("ราคาของแบบตัวเดียวในหน้า เมื่ออยู่โหมดรายเม็ด (ไม่มีราคาต่อเม็ด)", async () => {
     const u = user();
     await openOwn(u, "small7");
     await u.click(gem(1, "ซิทริน"));
-    const prices = document.body.textContent?.match(/\d[\d,]*\s*บาท/g) ?? [];
-    expect(new Set(prices)).toEqual(new Set(["890 บาท"]));
+    // การ์ดเลือกแบบแสดงราคาของทุกแบบ (D1.3) — ตัดออก แล้วที่เหลือต้องเป็นราคาของแบบที่เลือกค่าเดียว
+    const picker = screen.getByRole("radiogroup", { name: "เลือกแบบแหวน" }).textContent ?? "";
+    const prices = (document.body.textContent ?? "").replace(picker, "").match(/\d[\d,]*\s*บาท/g) ?? [];
+    expect(prices.length).toBeGreaterThan(0);
+    expect(new Set(prices)).toEqual(new Set([formatPriceThb("small7")]));
   });
 });

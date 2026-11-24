@@ -4,10 +4,11 @@
 // ป้ายการ์ดมาจาก badgeKind (Y6): "quiz" = ผลมาจาก quiz จริง · "intention" = จัดอันดับตามเรื่องที่เลือก (ห้ามเขียนว่าจากแบบทดสอบ)
 // ไม่มีแบบแนะนำ (เข้าตรง/ยังไม่เลือกเรื่อง) = ข้อความให้เลือกเรื่อง + การ์ดชวนทำ quiz เป็นลิงก์รอง
 // ข้อความอธิบายคู่พลอย = GEM_QUIZ_PAIRS คำต่อคำ (title / th / "เหมาะกับ: fit") · ไม่แต่งสรรพคุณใหม่ (X7)
+// เม็ดเดี่ยว (D1.3 §15.3 จุดที่ 6): การ์ดชุด n = พลอยอันดับ n ไอคอนเดียว ชื่อเดียว · คำอธิบาย = labelTh + keywords ของพลอยนั้น (ข้อความเดิมของ quiz) · ไม่ใช้ข้อความคู่ (แหวนมีพลอยเม็ดเดียว อ้างสรรพคุณคู่ = ไม่จริง) · ไม่แสดง sameAs
 import { useId, useRef } from "react";
 import { GEM_QUIZ_STONE_BY_CODE } from "@/lib/gem-quiz/config";
 import { GEM_QUIZ_PATH, SHOWCASE_COPY } from "@/lib/ring-builder/showcase/config";
-import type { ShowcaseDesign } from "@/lib/ring-builder/showcase/designs";
+import { isSingleStone, type ShowcaseDesign } from "@/lib/ring-builder/showcase/designs";
 import type { ShowcaseSet } from "@/lib/ring-builder/showcase/sets";
 import { GemIcon } from "../../gem-quiz/_components/GemIcon";
 import { PlacementNote } from "./PlacementNote";
@@ -56,6 +57,8 @@ export function GemSetPicker({
   }
 
   const selected = sets.find((s) => s.index === selectedIndex) ?? sets[0];
+  const single = isSingleStone(design);
+  const selectedStone = GEM_QUIZ_STONE_BY_CODE[selected.top];
 
   return (
     <div className="flex flex-col gap-3">
@@ -94,16 +97,16 @@ export function GemSetPicker({
             >
               <span className="flex flex-none items-center gap-1" aria-hidden="true">
                 <GemIcon colors={topStone.colors} size={40} />
-                <GemIcon colors={bottomStone.colors} size={32} />
+                {!single && <GemIcon colors={bottomStone.colors} size={32} />}
               </span>
               <span className="flex min-w-0 flex-1 flex-col gap-0.5">
                 <span className="text-xs tracking-[0.08em] text-[var(--gq-burgundy)]">
                   {SHOWCASE_COPY.setLabel(set.index)} · {badgeKind === "quiz" ? SHOWCASE_COPY.rankBadge(set.index) : SHOWCASE_COPY.rankBadgeIntention(set.index)}
                 </span>
                 <span className="text-base font-medium text-[var(--gq-text)]">
-                  {topStone.labelTh} + {bottomStone.labelTh}
+                  {single ? topStone.labelTh : `${topStone.labelTh} + ${bottomStone.labelTh}`}
                 </span>
-                {set.sameAsIndex !== null && (
+                {!single && set.sameAsIndex !== null && (
                   <span className="text-[13px] text-[var(--gq-text-muted)]">{SHOWCASE_COPY.sameAs(set.sameAsIndex)}</span>
                 )}
               </span>
@@ -121,9 +124,18 @@ export function GemSetPicker({
       </div>
 
       <div aria-live="polite" className="flex flex-col gap-1.5 rounded-2xl border border-[var(--gq-border-soft)] bg-white px-4 py-3.5">
-        <p className="font-quiz-display text-xl font-semibold text-[var(--gq-burgundy-dark)]">{selected.pair.title}</p>
-        <p className="text-[13px] text-[var(--gq-text-muted)]">{selected.pair.th}</p>
-        <p className="text-sm">เหมาะกับ: {selected.pair.fit}</p>
+        {single ? (
+          <>
+            <p className="font-quiz-display text-xl font-semibold text-[var(--gq-burgundy-dark)]">{selectedStone.labelTh}</p>
+            <p className="text-[13px] text-[var(--gq-text-muted)]">{selectedStone.keywords}</p>
+          </>
+        ) : (
+          <>
+            <p className="font-quiz-display text-xl font-semibold text-[var(--gq-burgundy-dark)]">{selected.pair.title}</p>
+            <p className="text-[13px] text-[var(--gq-text-muted)]">{selected.pair.th}</p>
+            <p className="text-sm">เหมาะกับ: {selected.pair.fit}</p>
+          </>
+        )}
       </div>
     </div>
   );
