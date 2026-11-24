@@ -195,7 +195,6 @@ RingShowcaseClient state: designId · intention · recIndex · own · active · 
   };
   export function showcasePriceThb(id: ShowcaseDesignId): number   // id นอก whitelist = throw (ผู้เรียกส่ง id ที่ผ่านด่านแล้วเสมอ)
   export function formatPriceThb(id: ShowcaseDesignId): string     // "790 บาท" — arg บังคับ ไม่มี default
-  export function minShowcasePriceThb(): number                    // ใช้ที่ hub เท่านั้น
   ```
 - **ทำไม map ใน config ไม่ใช่ `priceThb` ใน DESIGNS**: (1) `Record<ShowcaseDesignId, number>` บังคับครบทุก id ตอน compile — เพิ่มแบบที่ 9 แล้วลืมราคา = build ไม่ผ่าน (2) คงการแบ่งชั้นเดิม: config = ค่าเงิน/เวลาที่เจ้าของสั่ง · designs = รูปร่างแบบ (3) แก้ราคาแบบเดียว = diff 1 บรรทัด ไฟล์เดียว · **ตัดทิ้ง**: `priceThb` ใน DESIGNS (ต้องแก้ `rowDesign()` + ทำลายการแบ่งชั้น) · `formatPriceThb(id?)` มี default (ลืมส่ง id ได้ 890 เงียบๆ = บั๊กที่กำลังกัน)
 - ลบ `SHOWCASE_COPY.priceAllDesigns` ทิ้ง (ไม่ใช่แค่เลิกใช้)
@@ -208,7 +207,7 @@ RingShowcaseClient state: designId · intention · recIndex · own · active · 
 | การ์ดเลือกแบบ | `_components/DesignPicker.tsx` | **แสดงราคาใต้ชื่อสั้นทุกใบ** (ราคาไม่เท่ากันแล้ว ลูกค้าต้องเห็นก่อนกด) · chip สูง 72→~88px · aria-label = ชื่อ + ราคา |
 | สรุป | `_components/OrderSummary.tsx:75` | `formatPriceThb(design.id)` |
 | LINE | `line-message.ts:99` | `formatPriceThb(design.id)` — design ที่ผ่าน `findShowcaseDesign` แล้วเท่านั้น |
-| hub | `lib/tools-hub/config.ts:45` | "เริ่มต้น {minShowcasePriceThb()} บาท · {leadTimeLabel()}" (ค่าตั้งต้น · รอเจ้าของ §15.10 ข้อ 2) |
+| hub | `lib/tools-hub/config.ts:45` | **ไม่แสดงราคาใดๆ** (มติ TL 24 พ.ย. ทับค่าตั้งต้นเดิม "เริ่มต้น 790") — เหลือ `leadTimeLabel()` อย่างเดียว · ไม่มี `minShowcasePriceThb` · จำนวนแบบนับอัตโนมัติจาก `DESIGNS.length` (8) · หมายเหตุ: ก่อน D1.3 hub มี "890 บาท · พรีออเดอร์…" อยู่ในโค้ดจริง (meta ของการ์ดดูแหวน) — ถูกถอดราคาออกตามมติ |
 | คอมเมนต์ "890 ทุกแบบ" | หัว `config.ts` · `OwnGemPicker.tsx:3` · `ToolsHub.tsx:9` | แก้ให้ตรง (ไม่ใช่ logic แต่คนอ่านต่อจะเชื่อ) |
 - `pageDescription`/metadata ยังไม่มีตัวเลขราคา (เดิม) · ไม่พบ OG ที่มีเลขราคา (grep 24 พ.ย.)
 - test เดิม 16 ไฟล์มี `890` (41 จุด): เปลี่ยนเป็น `formatPriceThb(id)` · **test เดียวที่ล็อกตัวเลขดิบ** (`config.test.ts`: 7 แบบ = 890 · solitaire = 790) — ค่าเจ้าของถูกล็อกที่เดียว
@@ -282,7 +281,12 @@ RingShowcaseClient state: designId · intention · recIndex · own · active · 
 
 ### 15.10 คำถามเจ้าของ (ไม่บล็อกการเริ่มงาน — ใช้ค่าตั้งต้นในวงเล็บไปก่อน)
 1. ชื่อแบบ 8 สำหรับลูกค้า (`TODO_OWNER_DESIGN_NAME` · ชั่วคราว "แหวนเม็ดเดี่ยว 6 เตย")
-2. หน้า hub เขียน "เริ่มต้น 790 บาท" ได้ไหม หรือไม่ใส่ราคาเลย (ค่าตั้งต้น: "เริ่มต้น 790 บาท" คำนวณจากราคาต่ำสุด)
-3. ลำดับ chip: เม็ดเดี่ยวไว้ใบสุดท้ายหรือใบแรก (ค่าตั้งต้น: ใบที่ 8 · มือถือต้องปัดถึงจะเห็น)
+2. ~~หน้า hub เขียน "เริ่มต้น 790 บาท"~~ → **TL ตัดสินแล้ว: hub ไม่ใส่ราคา** (เจ้าของยังไม่ได้สั่งเพิ่ม)
+3. ลำดับ chip: เม็ดเดี่ยวไว้ใบสุดท้ายหรือใบแรก (ค่าตั้งต้น = **ใบที่ 8** · TL ยืนยัน · มือถือต้องปัดถึงจะเห็น)
 4. 790 รวมพลอยสีเหมือน 7 แบบไหม · พลอยกลมขนาดนี้มีครบ 5 ชนิด + CZ ขาวไหม (ค่าตั้งต้น: เลือกได้ 6 ตัวเลือกราคาเดียว)
 5. การ์ดเลือกแบบแสดงราคาทุกใบ — โอเคไหม (ค่าตั้งต้น: แสดง)
+
+### 15.11 บันทึกการ implement (Luke · 24 พ.ย. 69)
+- ทำตาม S0–S5 · commit แยกตาม S บน `feature/showcase-solitaire`
+- เบี่ยงจาก §15: (1) hub ไม่มีราคา + ไม่มี `minShowcasePriceThb` (มติ TL) (2) `SHOWCASE_PRICE_THB_BY_DESIGN` ใส่ solitaire ตอน S3 (S1 ยังไม่มีแบบ 8 ตามแผน) (3) `showcasePriceThb` ตรวจ id ด้วย `hasOwnProperty` (กัน `__proto__`/`constructor`) (4) copy ใหม่ที่ไม่อยู่ใน §15: `singleStoneEmptyHint` "แตะพลอยที่ชอบเพื่อดูบนแหวน" (ข้อความช่วยตอนยังไม่เลือก — เม็ดเดี่ยวใช้ `ownEmptyHintPerGem` ไม่ได้เพราะมี "ทุกเม็ด") (5) PlacementNote ของเม็ดเดี่ยวไม่ render ทั้งโหมดแนะนำและเลือกเอง
+- test เดิมที่แก้เกิน "890 → formatPriceThb": ลำดับ/จำนวนแบบ 7→8 · loop ที่ยืนยัน "พลอยหลัก/เสริม" ของแบบแถวหลายเม็ด กรอง `!isSingleStone` (เม็ดเดี่ยวมี test คำต้องห้ามของตัวเองใน `solitaire.test.ts` + `RingShowcase.solitaire.test.tsx`) · DOM ที่เคยเช็คราคา "ทั้งหน้า" ตัดการ์ดเลือกแบบออกก่อน (การ์ดแสดงราคาทุกแบบโดยตั้งใจ)
