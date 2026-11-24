@@ -3,7 +3,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SHOWCASE_COPY } from "@/lib/ring-builder/showcase/config";
 import { buildShowcaseDetailRows } from "@/lib/ring-builder/showcase/detail-rows";
-import { ensureFonts, composeSaveImage, readSaveTheme, saveImageTexts, type ComposeEnv, type SaveTheme } from "./compose";
+import { FONT_WAIT_MS, ensureFonts, composeSaveImage, readSaveTheme, saveImageTexts, type ComposeEnv, type SaveTheme } from "./compose";
 import { makeSaveImage, saveFileName } from "./make-image";
 import { STAGE_H, STAGE_W } from "./layout";
 
@@ -174,6 +174,23 @@ describe("ensureFonts / readSaveTheme", () => {
     await expect(ensureFonts(THEME, ["ก"], bad)).resolves.toBeUndefined();
   });
 
+  it("ฟอนต์ไม่ตอบ → รอไม่เกิน FONT_WAIT_MS แล้วไปต่อ (งานสร้างรูปจบในเวลาจำกัด ปุ่มไม่ค้าง)", async () => {
+    vi.useFakeTimers();
+    try {
+      const hung = { load: vi.fn(() => new Promise<never>(() => {})), ready: new Promise<never>(() => {}) };
+      let done = false;
+      const p = ensureFonts(THEME, ["ก"], hung).then(() => (done = true));
+      await vi.advanceTimersByTimeAsync(FONT_WAIT_MS - 1);
+      expect(done).toBe(false);
+      await vi.advanceTimersByTimeAsync(2);
+      await p;
+      expect(done).toBe(true);
+      expect(vi.getTimerCount()).toBe(0); // timer ถูกเคลียร์
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("อ่าน token จาก computed style · ขาด token = throw (ไม่เดาสี)", () => {
     const el = document.createElement("div");
     document.body.appendChild(el);
@@ -256,6 +273,29 @@ describe("makeSaveImage", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("เกินเวลา: resolve ล้มก่อน แต่ onTimeout ส่ง promise 'งานจบจริง' — ไม่ resolve จนกว่า compose จะจบ · ไม่เรียกถ้าไม่เกินเวลา", async () => {
+    vi.useFakeTimers();
+    try {
+      let finish!: () => void;
+      const slow = vi.fn(() => new Promise<{ blob: Blob; width: number; height: number }>((r) => (finish = () => r({ blob: new Blob(["x"]), width: 1, height: 1 }))));
+      let done: Promise<void> | null = null;
+      let doneResolved = false;
+      const p = makeSaveImage(base({ deps: { readTheme, compose: slow }, timeoutMs: 8000, onTimeout: (d: Promise<void>) => { done = d; void d.then(() => (doneResolved = true)); } }) as never);
+      await vi.advanceTimersByTimeAsync(8001);
+      await expect(p).resolves.toEqual({ ok: false });
+      expect(done).not.toBeNull();
+      expect(doneResolved).toBe(false); // งานยังวิ่ง — ผู้เรียกต้องยังถือ busy
+      finish();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(doneResolved).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+    const onTimeout = vi.fn();
+    await makeSaveImage(base({ onTimeout }) as never);
+    expect(onTimeout).not.toHaveBeenCalled();
   });
 
   it("ชื่อไฟล์ไม่มีข้อมูลลูกค้า", () => {

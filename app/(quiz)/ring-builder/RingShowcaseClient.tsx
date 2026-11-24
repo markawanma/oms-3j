@@ -345,7 +345,7 @@ export function RingShowcaseClient({ params }: { params: ShowcaseParams }) {
             choice={choice}
             size={effectiveSize}
             onEdit={jumpTo}
-            saveImage={stageStatus === "unsupported" ? undefined : { ready: stageStatus === "ready" && captureHandle !== null, capture: captureHandle?.fn ?? null }}
+            saveImage={stageStatus === "unsupported" ? undefined : { ready: stageStatus === "ready" && captureHandle !== null, capture: captureHandle?.fn ?? null, designFailed: stageStatus === "designFailed" }}
           />
           <div className="border-t border-[var(--gq-divider)] pt-4">
             <p className="text-xs leading-[1.65] text-[var(--gq-text-faint)]">

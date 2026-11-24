@@ -42,7 +42,7 @@ export function OrderSummary({
   /** P1d: มี = แสดงปุ่ม "แก้" (พาไปหัวข้อนั้น · ไม่รีเซ็ตค่า) — ไม่มี = ไม่แสดง */
   onEdit?: (target: ShowcaseEditTarget) => void;
   /** ปุ่ม "บันทึกรูป": ไม่มี = ไม่แสดง (เวที 3D ใช้ไม่ได้ถาวร) · ready=false = แสดงแต่ปิดไว้ + ข้อความรอเวที */
-  saveImage?: { ready: boolean; capture: CaptureFrontFn | null };
+  saveImage?: { ready: boolean; capture: CaptureFrontFn | null; designFailed?: boolean };
 }) {
   const input = { designId, choice, size };
   const message = buildShowcaseLineMessage(input);
@@ -162,7 +162,7 @@ export function OrderSummary({
         >
           {copied ? SHOWCASE_COPY.copiedButton : SHOWCASE_COPY.copyButton}
         </button>
-        {showSave && saveImage && <SaveImageButton input={input} ready={saveImage.ready} capture={saveImage.capture} />}
+        {showSave && saveImage && <SaveImageButton input={input} ready={saveImage.ready} capture={saveImage.capture} designFailed={saveImage.designFailed} />}
       </div>
       <p role="status" className="sr-only">
         {copied ? SHOWCASE_COPY.copiedButton : ""}

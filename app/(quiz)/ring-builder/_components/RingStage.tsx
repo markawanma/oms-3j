@@ -16,8 +16,8 @@ import { DesignPictogram } from "./DesignPictogram";
 
 type StageMode = "checking" | "loading" | "ready" | "unsupported" | "lost";
 
-/** สถานะที่ผู้ใช้ภายนอกต้องรู้ (ปุ่ม "บันทึกรูป"): ready = จับภาพได้ · waiting = ชั่วคราว (checking/loading/lost/designFailed) · unsupported = ถาวร (ไม่มี WebGL/โหลด chunk ไม่ได้) */
-export type StageCaptureStatus = "waiting" | "ready" | "unsupported";
+/** สถานะที่ผู้ใช้ภายนอกต้องรู้ (ปุ่ม "บันทึกรูป"): ready = จับภาพได้ · waiting = ชั่วคราว (checking/loading/lost) · designFailed = โมเดลของแบบนี้สร้างไม่ได้ (ปุ่มบอกเหตุผลตรงๆ ไม่ใช่ "รอ") · unsupported = ถาวร (ไม่มี WebGL/โหลด chunk ไม่ได้) */
+export type StageCaptureStatus = "waiting" | "ready" | "unsupported" | "designFailed";
 
 export function RingStage({
   design,
@@ -83,7 +83,7 @@ export function RingStage({
   }, [design.id, failedDesign]);
 
   const designFailed = failedDesign === design.id;
-  const captureStatus: StageCaptureStatus = mode === "unsupported" ? "unsupported" : mode === "ready" && !designFailed ? "ready" : "waiting";
+  const captureStatus: StageCaptureStatus = mode === "unsupported" ? "unsupported" : designFailed ? "designFailed" : mode === "ready" ? "ready" : "waiting";
   const captureFn = captureStatus === "ready" ? (captureHandle?.fn ?? null) : null;
   useEffect(() => {
     onStageStatus?.(captureStatus);

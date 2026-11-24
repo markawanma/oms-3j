@@ -1,7 +1,7 @@
 // lib/ring-builder/save-image/make-image.ts — ประกอบขั้น "จับภาพ → compose → File" ของปุ่มบันทึกรูป (ux-ring-save-image §3.1)
-// 🔴 ลำดับสำคัญ: จับภาพ 3D (sync) ทำก่อน await แรกเสมอ → ได้ภาพ = ค่าตอนกด (ไม่ใช่ state ที่เปลี่ยนทีหลัง) และอยู่ใน gesture เดียวกับปุ่ม
+// 🔴 ลำดับสำคัญ: จับภาพ 3D (sync) ทำก่อน await แรกเสมอ → ได้ภาพ = ค่า ณ ตอนเรียก (ไม่ใช่ state ที่เปลี่ยนทีหลัง) · ปุ่มเรียกล่วงหน้าตอนค่านิ่ง (pre-compose) ไม่ใช่ตอนกด — เพราะ iOS ต้องเรียก share() ใน gesture โดยไม่มี await คั่น
 // 🔴 ด่านเดียวกับปุ่ม LINE: buildShowcaseLineMessage(input) !== null (แบบ/ไซซ์/พลอยถูกต้อง) ไม่ผ่าน = ไม่สร้างรูป
-// ล้มทุกทาง (capture null · พิกเซลว่าง · ไม่มี token · toBlob null · เกินเวลา) = { ok:false } ไม่ throw · ไม่มี network/storage
+// ล้มทุกทาง (capture null · พิกเซลว่าง · ไม่มี token · toBlob null · เกินเวลา) = { ok:false } ไม่ throw · เกินเวลา = resolve ล้มเลย แต่ compose อาจยังวิ่งอยู่ → onTimeout ส่ง promise "งานจบจริง" ให้ผู้เรียกถือ busy ไว้ (กันซ้อนงาน) · ไม่มี network/storage
 import type { ShowcaseLineInput } from "@/lib/ring-builder/showcase/line-message";
 import { buildShowcaseLineMessage } from "@/lib/ring-builder/showcase/line-message";
 import { buildShowcaseDetailRows } from "@/lib/ring-builder/showcase/detail-rows";
@@ -21,6 +21,8 @@ export interface MakeImageArgs {
   themeEl: Element;
   now?: Date;
   timeoutMs?: number;
+  /** เรียกเฉพาะตอนเกินเวลา (ก่อน resolve ล้ม): `done` resolve เมื่องานข้างในจบจริง (ไม่ reject) — ผู้เรียกรอมันก่อนปล่อยปุ่ม */
+  onTimeout?: (done: Promise<void>) => void;
   /** เทสต์เท่านั้น */
   deps?: { readTheme?: (el: Element) => SaveTheme; compose?: typeof composeSaveImage; env?: ComposeEnv };
 }
@@ -36,7 +38,7 @@ export function makeSaveImage(args: MakeImageArgs): Promise<MakeImageResult> {
   const now = args.now ?? new Date();
   // --- ส่วน sync (ก่อน await แรก): ตรวจ + จับภาพ ---
   let rgba: Uint8Array | null;
-  let rows;
+  let rows: ReturnType<typeof buildShowcaseDetailRows>;
   try {
     if (buildShowcaseLineMessage(args.input) === null) return Promise.resolve(fail);
     rows = buildShowcaseDetailRows(args.input);
@@ -68,7 +70,10 @@ export function makeSaveImage(args: MakeImageArgs): Promise<MakeImageResult> {
   })();
   const timeoutMs = args.timeoutMs ?? SAVE_TIMEOUT_MS;
   return new Promise<MakeImageResult>((resolve) => {
-    const timer = setTimeout(() => resolve(fail), timeoutMs);
+    const timer = setTimeout(() => {
+      args.onTimeout?.(work.then(() => undefined));
+      resolve(fail);
+    }, timeoutMs);
     work.then((r) => {
       clearTimeout(timer);
       resolve(r);

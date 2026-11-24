@@ -25,6 +25,10 @@ import {
 } from "./layout";
 
 export const JPEG_QUALITY = 0.92;
+/** พื้นขาวของการ์ด/ป้าย/ต้นไล่เฉดเวที — ไม่มี token ใน --gq-* (หน้าใช้ Tailwind bg-white) จึงประกาศที่เดียวตรงนี้ */
+const WHITE = "#ffffff";
+/** รอฟอนต์ไม่เกินเท่านี้ แล้ววาดด้วย fallback — ทำให้งานสร้างรูปจบในเวลาจำกัดเสมอ (ปุ่มไม่ค้าง busy) */
+export const FONT_WAIT_MS = 5000;
 
 /** token สีที่ใช้วาด (อ่านจาก CSS ของหน้า) + stack ฟอนต์ที่หน้าใช้ */
 export interface SaveTheme {
@@ -103,15 +107,21 @@ export function saveImageTexts(rows: readonly { label: string; value: string }[]
 export async function ensureFonts(theme: SaveTheme, texts: readonly string[], fonts: ComposeEnv["fonts"]): Promise<void> {
   if (!fonts) return;
   const sample = Array.from(new Set(texts.join(""))).join("");
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    await Promise.all([
+    const loading = Promise.all([
       fonts.load(`400 ${LABEL_PX}px ${theme.sans}`, sample),
       fonts.load(`500 ${VALUE_PX}px ${theme.sans}`, sample),
       fonts.load(`600 40px ${theme.display}`, SHOWCASE_COPY.saveWordmark),
-    ]);
-    await fonts.ready;
+    ]).then(() => fonts.ready);
+    const giveUp = new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, FONT_WAIT_MS);
+    });
+    await Promise.race([loading, giveUp]);
   } catch {
     // ใช้ฟอนต์ที่มีอยู่
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -185,7 +195,7 @@ export function drawSaveImage(ctx: CanvasRenderingContext2D, layout: SaveLayout,
   const badgeX = layout.width - MARGIN_X - badgeW;
   const badgeY = (HEADER_H - badgeH) / 2;
   roundRectPath(ctx, badgeX, badgeY, badgeW, badgeH, badgeH / 2);
-  ctx.fillStyle = "#ffffff";
+  ctx.fillStyle = WHITE;
   ctx.fill();
   ctx.strokeStyle = theme.border;
   ctx.lineWidth = 2;
@@ -197,7 +207,7 @@ export function drawSaveImage(ctx: CanvasRenderingContext2D, layout: SaveLayout,
   // stage: พื้นเดียวกับเวที (ขาว → border-soft) + เงาวงรี (สูตรเดียวกับ RingStage: top 66% · สูง 9% · กว้าง 58%) + แหวน
   const { stage } = layout;
   const grad = ctx.createLinearGradient(0, stage.y, 0, stage.y + stage.h);
-  grad.addColorStop(0, "#ffffff");
+  grad.addColorStop(0, WHITE);
   grad.addColorStop(1, theme.borderSoft);
   ctx.fillStyle = grad;
   ctx.fillRect(stage.x, stage.y, stage.w, stage.h);
@@ -221,7 +231,7 @@ export function drawSaveImage(ctx: CanvasRenderingContext2D, layout: SaveLayout,
   // details card
   const { card } = layout;
   roundRectPath(ctx, card.x, card.y, card.w, card.h, CARD_RADIUS);
-  ctx.fillStyle = "#ffffff";
+  ctx.fillStyle = WHITE;
   ctx.fill();
   ctx.strokeStyle = theme.borderSoft;
   ctx.lineWidth = 2;

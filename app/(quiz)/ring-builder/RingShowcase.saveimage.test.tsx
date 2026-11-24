@@ -118,40 +118,25 @@ describe("สถานะปุ่มตามเวที (§4)", () => {
 });
 
 describe("กดบันทึกรูป", () => {
-  it("สร้างจาก capture ปัจจุบัน + input ตอนกด · share สำเร็จ = ไม่ขึ้น 'บันทึกแล้ว' ไม่มี alert ไม่มี sheet (S7)", async () => {
+  it("ยังไม่มีรูปที่เตรียมไว้: สร้างจาก capture + input ตอนกด แล้วเปิด sheet · ไม่เรียก share หลัง await (iOS gesture) · ไม่ขึ้น 'บันทึกแล้ว'", async () => {
     h.makeSaveImage.mockResolvedValue(okImage());
-    h.deliverImage.mockResolvedValue("shared");
     const u = userEvent.setup();
     const { container } = render(<RingShowcaseClient params={OWN_DESIGN} />);
     await readyStage();
     await u.click(saveBtn()!);
-    await waitFor(() => expect(h.deliverImage).toHaveBeenCalledTimes(1));
+    await screen.findByRole("dialog", { name: SHOWCASE_COPY.saveSheetTitle });
     const args = h.makeSaveImage.mock.calls[0][0];
     expect(args.input).toMatchObject({ designId: "bypass2", size: null });
     expect(typeof args.capture).toBe("function");
-    await waitFor(() => expect(saveBtn()).toBeEnabled());
+    expect(h.deliverImage).not.toHaveBeenCalled();
+    expect(saveBtn()).toBeEnabled();
     expect(container.textContent).not.toMatch(/บันทึกแล้ว|✓.*รูป/);
     expect(screen.queryByRole("alert")).toBeNull();
-    expect(screen.queryByRole("dialog")).toBeNull();
-  });
-
-  it("S8: ผู้ใช้ยกเลิกเมนูแชร์ (aborted) = เงียบ ไม่ใช่ error", async () => {
-    h.makeSaveImage.mockResolvedValue(okImage());
-    h.deliverImage.mockResolvedValue("aborted");
-    const u = userEvent.setup();
-    render(<RingShowcaseClient params={OWN_DESIGN} />);
-    await readyStage();
-    await u.click(saveBtn()!);
-    await waitFor(() => expect(h.deliverImage).toHaveBeenCalled());
-    await waitFor(() => expect(saveBtn()).toBeEnabled());
-    expect(screen.queryByRole("alert")).toBeNull();
-    expect(screen.queryByRole("dialog")).toBeNull();
   });
 
   it("S12: busy → ปุ่ม disabled + aria-busy + ข้อความ 'กำลังสร้างรูป…' · กดซ้ำไม่เรียก make ซ้ำ", async () => {
     let release!: (v: unknown) => void;
     h.makeSaveImage.mockReturnValue(new Promise((r) => (release = r)));
-    h.deliverImage.mockResolvedValue("shared");
     const u = userEvent.setup();
     render(<RingShowcaseClient params={OWN_DESIGN} />);
     await readyStage();
@@ -163,8 +148,8 @@ describe("กดบันทึกรูป", () => {
     await u.click(busy);
     expect(h.makeSaveImage).toHaveBeenCalledTimes(1);
     await act(async () => release(okImage()));
-    await waitFor(() => expect(saveBtn()).toBeEnabled());
-    expect(h.deliverImage).toHaveBeenCalledTimes(1);
+    await screen.findByRole("dialog");
+    expect(h.deliverImage).not.toHaveBeenCalled();
   });
 
   it("Error: สร้างรูปไม่สำเร็จ → role=alert + ปุ่มกลับมากดซ้ำได้ · ไม่เปิด sheet · ไม่เรียก share", async () => {
@@ -305,7 +290,7 @@ describe("N1–N3: ปุ่ม LINE / คัดลอก / ลิงก์เ�
     await readyStage();
     const before = window.location.search;
     await u.click(saveBtn()!);
-    await waitFor(() => expect(h.deliverImage).toHaveBeenCalled());
+    await screen.findByRole("dialog");
     expect(window.location.search).toBe(before);
   });
 });

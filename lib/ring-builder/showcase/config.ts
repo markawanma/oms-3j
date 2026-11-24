@@ -180,6 +180,7 @@ export const SHOWCASE_COPY = {
   saveButton: "บันทึกรูป",
   saveBusy: "กำลังสร้างรูป…",
   saveWaitStage: "รอภาพ 3 มิติโหลดก่อน จึงบันทึกรูปได้",
+  saveDesignFailed: "บันทึกรูปไม่ได้ เพราะภาพ 3 มิติของแบบนี้โหลดไม่ได้",
   saveFailed: "สร้างรูปไม่สำเร็จ ลองอีกครั้งได้เลย",
   saveSheetTitle: "บันทึกรูปแหวน",
   saveSheetHint: "กดค้างที่รูปเพื่อบันทึกลงเครื่อง", // ไม่อ้างชื่อเมนูของ iOS/Android (ยังไม่ยืนยันคำจริง)
