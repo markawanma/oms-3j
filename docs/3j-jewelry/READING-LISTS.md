@@ -113,6 +113,7 @@
 ## 12. ออกแบบเครื่องประดับ · brand ops
 - memory: `3j-design-system` (DNA = folded satin) · `3j-silver-bar-facts`
 - docs: `docs/3j-jewelry/design-system/` · `docs/3j-jewelry/cad/` · `docs/3j-jewelry/brand-ops/`
+- docs (แบบที่ 8 แหวนเม็ดเดี่ยว 6 เตย — 24 พ.ย. 69 · branch docs/solitaire-ring (ยังไม่ merge) · builder `buildSolitaireRing` ใน `docs/3j-jewelry/cad/trinity-ring-preview.html`): `docs/3j-jewelry/cad/solitaire-ring-spec.md` (ค่าประมาณจากรูป + เหตุผล + คำถามเจ้าของ)
 - agent: `jewelry-designer` (Sabé) ใต้ ux-ui
 
 ## 13. วิธีทำงานของทีม · dev environment
