@@ -3,6 +3,8 @@
 // พอร์ตจากส่วน "3) viewer WebGL1 ดิบ" ของ docs/3j-jewelry/cad/trinity-ring-preview.html — ลำดับวาด · กล้อง · ลากหมุน
 // 🔴 D1.1 (17 พ.ย. 69): แก้ได้เฉพาะ fragment shader (ไฟล์ shaders.ts · ค่าแสงที่ SILVER_LOOK) — ห้ามแก้สูตรกล้อง (matrix.ts) และ bypass-ring.ts
 //   D1.2 (18 พ.ย. 69): เพิ่มได้ 1 เมธอด setRing() + generalize type ring เป็น ViewerRing (สลับแบบโดยไม่สร้าง WebGL context ใหม่) — กล้อง/matrix.ts/shader/bypass-ring.ts ห้ามแตะเหมือนเดิม
+//   25 พ.ย. 69 (TL อนุมัติ — design-ring-line-snapshot §2.1 + ux-ring-save-image §6): เพิ่มได้อีก 1 เมธอด captureFront() (จับภาพมุมหน้าด้วย readPixels ใน task เดียว แล้วคืนมุม/ขนาดเดิม)
+//     ใช้ร่วมกันของงาน "บันทึกรูป" และ "แนบรูป LINE" — ห้ามเขียนซ้ำเป็นชุดที่ 2 · กล้อง/matrix.ts/shader/bypass-ring.ts ห้ามแตะเหมือนเดิม · ห้ามเปิด preserveDrawingBuffer ถาวร
 //   shader V2 (เงินขัดเงา) compile/link ไม่ผ่าน → ถอยไปใช้ shader V1 ของ D1 ก่อน · V1 ก็ไม่ผ่าน → throw ให้ผู้เรียกตก fallback เป็นรูปจริง
 // ส่วนที่เพิ่มจากต้นฉบับ:
 //   · ซูมด้วย wheel เฉพาะเมื่อกด Ctrl/⌘ (pinch บนแทร็กแพดก็เป็นแบบนี้) — เพราะเวทีติดบนจอ ล้อเลื่อนปกติต้องเลื่อนหน้าได้
@@ -26,11 +28,20 @@ export interface RingRendererOptions {
   onUnsupported?: (reason: UnsupportedReason) => void;
 }
 
+/** จับภาพมุมหน้า w×h → RGBA (ดู RingRenderer.captureFront) · null = จับไม่ได้ */
+export type CaptureFrontFn = (w?: number, h?: number) => Uint8Array | null;
+
 export interface RingRenderer {
   setTints(tints: readonly GemTint[]): void;
   /** สลับเป็นแหวนอีกแบบ: คืน buffer เดิมทั้งหมด → อัปโหลดใหม่ → กลับมุมหน้า · ผู้เรียกต้อง setTints() ตามหลัง · พังกลางทาง = onUnsupported("no_webgl") */
   setRing(next: ViewerRing): void;
   resetView(): void;
+  /**
+   * จับภาพ "มุมหน้า" (yaw 0 · pitch 0 · zoom 1) ขนาด w×h ใน task เดียว: ตั้งมุม+ขนาด → draw → readPixels ทันที → คืนมุม/ขนาดเดิม → draw ใหม่ (ผู้ใช้ไม่เห็นภาพกระโดด)
+   * คืน RGBA ตามที่ readPixels ให้ตรงๆ: แถวล่างขึ้นบน (กลับหัว) · ขอบแหวนเป็นสีแบบ premultiplied (MSAA เฉลี่ยกับพื้นโปร่งใส) → ผู้ใช้ต้องผ่าน toTopDownStraightRgba() (capture-pixels.ts) ก่อนวาดบน canvas 2D
+   * null เมื่อ dispose/context lost/ไม่มีโมเดล/ขนาดไม่สมเหตุผล/framebuffer ได้ขนาดไม่ตรง/readPixels throw · มุมและขนาด canvas กลับค่าเดิมทุกกรณี (finally)
+   */
+  captureFront: CaptureFrontFn;
   dispose(): void;
 }
 
@@ -239,6 +250,46 @@ export function createRingRenderer(canvas: HTMLCanvasElement, initialRing: Viewe
     }
   }
 
+  /** ขนาดสูงสุดที่ยอมให้จับ (กัน framebuffer ใหญ่เกินจนมือถือหน่วยความจำหมด) */
+  const CAPTURE_MAX = 4096;
+  function captureFront(w = 1200, h = 630): Uint8Array | null {
+    if (disposed || lost || !metalBuf) return null;
+    if (!Number.isInteger(w) || !Number.isInteger(h) || w < 1 || h < 1 || w > CAPTURE_MAX || h > CAPTURE_MAX) return null;
+    const prev = { w: canvas.width, h: canvas.height, yaw, pitch, zoom };
+    let out: Uint8Array | null = null;
+    try {
+      canvas.width = w; // ตั้งขนาด buffer = ล้าง buffer (ไม่กระทบขนาดบนจอ — CSS คุมอยู่)
+      canvas.height = h;
+      yaw = 0;
+      pitch = 0;
+      zoom = 1;
+      draw();
+      const gx = gl as WebGLRenderingContext & { isContextLost?: () => boolean };
+      const sizeOk = (typeof gl.drawingBufferWidth !== "number" || gl.drawingBufferWidth === w) && (typeof gl.drawingBufferHeight !== "number" || gl.drawingBufferHeight === h);
+      if (sizeOk && !gx.isContextLost?.()) {
+        const px = new Uint8Array(w * h * 4);
+        gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px);
+        out = px;
+      }
+    } catch {
+      out = null;
+    } finally {
+      canvas.width = prev.w;
+      canvas.height = prev.h;
+      yaw = prev.yaw;
+      pitch = prev.pitch;
+      zoom = prev.zoom;
+      try {
+        draw(); // วาดคืนทันที (buffer ถูกล้างตอนเปลี่ยนขนาด)
+      } catch {
+        // วาดคืนไม่ได้ — เฟรมถัดไป (markDirty) จะลองใหม่
+      }
+      dirty = true;
+      schedule();
+    }
+    return out;
+  }
+
   /** ขอวาดเฟรมถัดไป (ไม่ซ้อน · ไม่ทำอะไรเมื่อ dispose/context lost) — ไม่มี rAF วนเมื่อไม่มีอะไรเปลี่ยน (D2-1) */
   function schedule() {
     if (disposed || lost || raf) return;
@@ -424,6 +475,7 @@ export function createRingRenderer(canvas: HTMLCanvasElement, initialRing: Viewe
       markDirty();
     },
     resetView,
+    captureFront,
     dispose() {
       if (disposed) return;
       disposed = true;

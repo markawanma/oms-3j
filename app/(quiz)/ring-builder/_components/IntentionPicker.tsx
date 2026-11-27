@@ -26,7 +26,7 @@ export function IntentionPicker({ value, onSelect }: { value: GemQuizIntention |
 
   return (
     <div className="flex flex-col gap-2.5">
-      <h2 id={headingId} className="font-quiz-serif text-xl font-semibold text-[var(--gq-burgundy-dark)]">
+      <h2 id={headingId} data-jump="gems" tabIndex={-1} className="font-quiz-serif text-xl font-semibold text-[var(--gq-burgundy-dark)] focus:outline-none">
         {SHOWCASE_COPY.intentionHeading}
       </h2>
 

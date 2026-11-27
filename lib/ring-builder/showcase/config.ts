@@ -167,6 +167,27 @@ export const SHOWCASE_COPY = {
   copiedButton: "คัดลอกแล้ว ✓",
   copyFailed: "กดค้างเพื่อคัดลอกเอง",
   copyFallbackLabel: "ข้อความที่จะส่ง",
+  // P1d (ux-tools-navigation §3 + ux-ring-save-image §5): ปุ่ม "แก้" ในสรุป — พาไปหัวข้อนั้น ไม่รีเซ็ตค่า · แถวไซซ์ที่ยังไม่เลือก = "เลือก"
+  editButton: "แก้",
+  editSizeSelectButton: "เลือก",
+  editAriaDesign: "แก้แบบแหวน",
+  editAriaGems: "แก้ชุดพลอย",
+  editAriaSize: "แก้ไซซ์",
+  editAriaSizeSelect: "เลือกไซซ์",
+  jumpAnnounce: (heading: string) => `ไปที่ ${heading}`,
+  retakeQuiz: "ทำแบบทดสอบใหม่",
+  // ปุ่ม "บันทึกรูป" (ux-ring-save-image §2.2 · TL ตั้งค่าเริ่มต้น 25 พ.ย. Q5 = "บันทึกรูป") — client-only ไม่มีลิงก์/QR/LINE ID บนภาพ (Q3)
+  saveButton: "บันทึกรูป",
+  saveBusy: "กำลังสร้างรูป…",
+  saveWaitStage: "รอภาพ 3 มิติโหลดก่อน จึงบันทึกรูปได้",
+  saveDesignFailed: "บันทึกรูปไม่ได้ เพราะภาพ 3 มิติของแบบนี้โหลดไม่ได้",
+  saveFailed: "สร้างรูปไม่สำเร็จ ลองอีกครั้งได้เลย",
+  saveSheetTitle: "บันทึกรูปแหวน",
+  saveSheetHint: "กดค้างที่รูปเพื่อบันทึกลงเครื่อง", // ไม่อ้างชื่อเมนูของ iOS/Android (ยังไม่ยืนยันคำจริง)
+  saveSheetClose: "ปิด",
+  saveWordmark: "3J · JEWELRY",
+  saveImageNote: "ภาพจำลอง 3 มิติ สีพลอยและรายละเอียดของชิ้นจริงอาจต่างจากภาพ",
+  savePriceAsOf: (date: string) => `ราคา ณ ${date}`,
   // ไม่ใช้คำว่า "เพชร" แม้ในประโยคปฏิเสธ (X7) · แสดงเฉพาะแบบที่มี CZ เล็กมาพร้อมแหวน (extraCz > 0)
   czNote: "CZ คือคิวบิกเซอร์โคเนีย พลอยเม็ดเล็กสีขาวที่มาพร้อมแหวน",
 } as const;

@@ -7,7 +7,7 @@
 // ผิดพลาด/ context lost → เรียก onUnsupported ให้ UI สลับเป็นรูปจริง/ภาพประกอบ · สร้างโมเดลของแบบนั้นไม่ได้ → onDesignFailed(id) (stage แสดง fallback + ปุ่มลองอีกครั้ง)
 import { useEffect, useRef } from "react";
 import { designTints, slotTints } from "@/lib/ring-builder/viewer/gem-colors";
-import { createRingRenderer, type RingRenderer, type UnsupportedReason } from "@/lib/ring-builder/viewer/gl-renderer";
+import { createRingRenderer, type CaptureFrontFn, type RingRenderer, type UnsupportedReason } from "@/lib/ring-builder/viewer/gl-renderer";
 import { getShowcaseRing } from "@/lib/ring-builder/viewer/showcase-rings";
 import type { GemQuizStoneCode } from "@/lib/gem-quiz/config";
 import type { SlotCode } from "@/lib/ring-builder/showcase/quiz-link";
@@ -31,20 +31,25 @@ export interface RingViewerProps {
   onDesignFailed?: (id: ShowcaseDesignId) => void;
   /** ปุ่ม "กลับมุมหน้า" — แสดงเฉพาะเมื่อ stage อยู่ในโหมด ready (ซ่อนตอนโหลด/context lost · หนี้ D2-6) · ค่าเริ่มต้น false */
   showReset?: boolean;
+  /**
+   * ส่งฟังก์ชันจับภาพมุมหน้า (renderer.captureFront) ขึ้นไปให้ผู้ใช้ภายนอก (บันทึกรูป/แนบรูป LINE) — ไม่ fetch อะไรเอง (สัญญาเดิมของ viewer)
+   * เรียกด้วย fn เมื่อ renderer พร้อม (รวมกลับมาหลัง context restored) · เรียกด้วย null เมื่อ context lost/สร้างไม่ได้/unmount
+   */
+  onCaptureReady?: (capture: CaptureFrontFn | null) => void;
 }
 
 function tintsFor(designId: ShowcaseDesignId, top: GemQuizStoneCode | null, bottom: GemQuizStoneCode | null, slots: readonly SlotCode[] | null | undefined) {
   return slots ? slotTints(designId, slots) : designTints(designId, top, bottom);
 }
 
-export default function RingViewer({ designId, top, bottom, slots, ariaLabel, onReady, onUnsupported, onDesignFailed, showReset = false }: RingViewerProps) {
+export default function RingViewer({ designId, top, bottom, slots, ariaLabel, onReady, onUnsupported, onDesignFailed, onCaptureReady, showReset = false }: RingViewerProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const rendererRef = useRef<RingRenderer | null>(null);
   // แบบที่ renderer ถือโมเดลอยู่ตอนนี้ — ใช้ข้ามการ setRing ซ้ำตอน mount (effect ตามหลังการสร้าง)
   const shownDesign = useRef<ShowcaseDesignId | null>(null);
   // ค่าล่าสุดของ props ที่ effect ตอน mount ต้องใช้ โดยไม่ให้ตัววาดถูกสร้างใหม่ทุกครั้งที่สีเปลี่ยน
-  const latest = useRef({ designId, top, bottom, slots, onReady, onUnsupported, onDesignFailed });
-  latest.current = { designId, top, bottom, slots, onReady, onUnsupported, onDesignFailed };
+  const latest = useRef({ designId, top, bottom, slots, onReady, onUnsupported, onDesignFailed, onCaptureReady });
+  latest.current = { designId, top, bottom, slots, onReady, onUnsupported, onDesignFailed, onCaptureReady };
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -60,12 +65,20 @@ export default function RingViewer({ designId, top, bottom, slots, ariaLabel, on
       latest.current.onDesignFailed?.(startId);
       return;
     }
+    // ฟังก์ชันจับภาพที่ส่งให้ภายนอก: อ้าง renderer ปัจจุบันตอนเรียก (ไม่ใช่ตอนสร้าง) · renderer ไม่มี/จับไม่ได้ = null
+    const capture: CaptureFrontFn = (w, h) => renderer?.captureFront(w, h) ?? null;
     try {
       renderer = createRingRenderer(canvas, ring, {
         autoRotate: false, // TL 12 พ.ย.: ไม่หมุนเอง — หมุนแล้วพลอยหันหนีตอนลูกค้ากำลังเลือกชุดพลอย (ลากหมุนเองได้)
         reducedMotion,
-        onReady: () => latest.current.onReady?.(),
-        onUnsupported: (reason) => latest.current.onUnsupported?.(reason),
+        onReady: () => {
+          latest.current.onReady?.();
+          latest.current.onCaptureReady?.(capture);
+        },
+        onUnsupported: (reason) => {
+          latest.current.onCaptureReady?.(null);
+          latest.current.onUnsupported?.(reason);
+        },
       });
       renderer.setTints(tintsFor(startId, latest.current.top, latest.current.bottom, latest.current.slots));
       rendererRef.current = renderer;
@@ -74,9 +87,11 @@ export default function RingViewer({ designId, top, bottom, slots, ariaLabel, on
       // WebGL/shader ล้ม (สร้าง context ไม่ได้ · shader V1 ก็ไม่ผ่าน)
       renderer?.dispose();
       renderer = null;
+      latest.current.onCaptureReady?.(null);
       latest.current.onUnsupported?.("no_webgl");
     }
     return () => {
+      latest.current.onCaptureReady?.(null);
       renderer?.dispose();
       rendererRef.current = null;
       shownDesign.current = null;

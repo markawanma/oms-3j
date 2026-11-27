@@ -11,10 +11,12 @@
 // เปลือกจอ: fixed inset-0 + scroll ภายใน (แนวเดียวกับ /ring-size — layout แม่ของ (quiz) เป็นการ์ด 560px/พื้นขาว ซึ่งแก้ไม่ได้เพราะ gem quiz ใช้งานจริง)
 //   ทำให้ stage ติดบนมือถือ (sticky) และขยาย 2 คอลัมน์บนเดสก์ท็อปได้ · ไม่ใช้ 100vh (ใช้ dvh)
 // 🔴 hydration: ไม่อ่าน window/localStorage ตอน render — ผลวัดล่าสุดอ่านใน useEffect เท่านั้น
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { GEM_QUIZ_DISCLAIMER, type GemQuizIntention, type GemQuizStoneCode } from "@/lib/gem-quiz/config";
 import { getLastMeasuredSize, type LastMeasuredSize } from "@/lib/ring-builder/last-size";
-import { SHOWCASE_COPY, SHOWCASE_PHOTO_VIEWS, formatPriceThb, leadTimeLabel } from "@/lib/ring-builder/showcase/config";
+import { GEM_QUIZ_PATH, SHOWCASE_COPY, SHOWCASE_PHOTO_VIEWS, formatPriceThb, leadTimeLabel } from "@/lib/ring-builder/showcase/config";
+import type { ShowcaseEditTarget } from "@/lib/ring-builder/showcase/detail-rows";
+import type { CaptureFrontFn } from "@/lib/ring-builder/viewer/gl-renderer";
 import { getShowcaseDesign, isSingleStone, ownSlotCount, roleMainLabel, roleSubLabel, seedFromPair, type ShowcaseDesignId } from "@/lib/ring-builder/showcase/designs";
 import { DIRECT_STONE_LABEL, isShowcaseSize, type ShowcaseChoice } from "@/lib/ring-builder/showcase/line-message";
 import { fillAll, fitOwnToCount, formatOwnSlots, ownSlotsAria, slotLabel } from "@/lib/ring-builder/showcase/own-slots";
@@ -28,7 +30,7 @@ import { ModeSwitch, type ShowcaseMode } from "./_components/ModeSwitch";
 import { OrderSummary } from "./_components/OrderSummary";
 import { OwnGemPicker } from "./_components/OwnGemPicker";
 import { PhotoGallery, photoAlt } from "./_components/PhotoGallery";
-import { RingStage } from "./_components/RingStage";
+import { RingStage, type StageCaptureStatus } from "./_components/RingStage";
 import { SizePicker } from "./_components/SizePicker";
 import { ToolsHubLink } from "../_components/ToolsHubLink";
 
@@ -69,6 +71,11 @@ export function RingShowcaseClient({ params }: { params: ShowcaseParams }) {
   const [size, setSize] = useState<number | null>(null);
   const [lastMeasured, setLastMeasured] = useState<LastMeasuredSize | null>(null);
   const [announce, setAnnounce] = useState("");
+  // ปุ่ม "บันทึกรูป": สถานะเวที + ฟังก์ชันจับภาพมุมหน้า (RingViewer → RingStage → ที่นี่) · เริ่ม waiting (ปุ่มขึ้นแบบปิดไว้ แล้วซ่อนถ้าเวทีใช้ไม่ได้ถาวร)
+  const [stageStatus, setStageStatus] = useState<StageCaptureStatus>("waiting");
+  const [captureHandle, setCaptureHandle] = useState<{ fn: CaptureFrontFn } | null>(null);
+  const handleCaptureReady = useCallback((fn: CaptureFrontFn | null) => setCaptureHandle(fn ? { fn } : null), []);
+  const rootRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     try {
@@ -144,6 +151,17 @@ export function RingShowcaseClient({ params }: { params: ShowcaseParams }) {
       // history ใช้ไม่ได้ (sandbox) — แค่ไม่ sync URL หน้ายังใช้งานได้
     }
   }, [url]);
+
+  // P1d: ปุ่ม "แก้" ในสรุป = เลื่อนไปหัวข้อนั้น + ย้ายโฟกัส + ประกาศ · ไม่เปลี่ยนค่าที่เลือก · หาหัวข้อไม่เจอ = ไม่ทำอะไร (ไม่ throw)
+  function jumpTo(target: ShowcaseEditTarget) {
+    const el = rootRef.current?.querySelector<HTMLElement>(`[data-jump="${target}"]`);
+    if (!el) return;
+    const reduced = typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
+    el.scrollIntoView?.({ behavior: reduced ? "auto" : "smooth", block: "start" });
+    el.focus({ preventScroll: true });
+    const name = target === "design" ? SHOWCASE_COPY.designHeading : target === "size" ? SHOWCASE_COPY.sizeHeading : active === "rec" ? SHOWCASE_COPY.intentionHeading : SHOWCASE_COPY.pickerHeading;
+    setAnnounce(SHOWCASE_COPY.jumpAnnounce(name));
+  }
 
   function changeMode(next: ShowcaseMode) {
     if (next === active) return;
@@ -231,7 +249,7 @@ export function RingShowcaseClient({ params }: { params: ShowcaseParams }) {
   }
 
   return (
-    <div className="fixed inset-0 z-10 scroll-pt-[46dvh] overflow-y-auto overflow-x-hidden overscroll-contain bg-[var(--gq-ivory)] lg:scroll-pt-6">
+    <div ref={rootRef} className="fixed inset-0 z-10 scroll-pt-[46dvh] overflow-y-auto overflow-x-hidden overscroll-contain bg-[var(--gq-ivory)] lg:scroll-pt-6">
       <div className="mx-auto grid w-full max-w-[1080px] grid-cols-1 gap-x-8 gap-y-6 px-4 pb-[max(2rem,env(safe-area-inset-bottom))] lg:grid-cols-2">
         {/* stage — มือถือ: ติดบน ~40dvh · เดสก์ท็อป: คอลัมน์ซ้าย sticky */}
         <div className="sticky top-0 z-20 -mx-4 bg-[var(--gq-ivory)] px-4 pb-2 pt-[max(0.5rem,env(safe-area-inset-top))] lg:static lg:top-auto lg:z-0 lg:row-span-4 lg:row-start-1 lg:mx-0 lg:bg-transparent lg:px-0 lg:pb-0 lg:pt-6">
@@ -244,6 +262,8 @@ export function RingShowcaseClient({ params }: { params: ShowcaseParams }) {
               ariaLabel={stageAria}
               photo={photos[0]}
               photoAlt={photos.length > 0 ? photoAlt(design.name, 0, photos.length, photoViews) : design.name}
+              onCaptureReady={handleCaptureReady}
+              onStageStatus={setStageStatus}
             />
           </div>
         </div>
@@ -268,10 +288,24 @@ export function RingShowcaseClient({ params }: { params: ShowcaseParams }) {
           {active === "rec" ? (
             <>
               <IntentionPicker value={intention} onSelect={changeIntention} />
+              {sets !== null && (
+                // ลิงก์รอง (ux-tools-navigation §3.3): กลับไปทำ quiz ใหม่ — ไม่เก็บสิ่งที่เลือกไว้ (quiz ส่งกลับแค่ t+i) · ยังไม่มีชุดแนะนำ = มีการ์ดชวนทำ quiz อยู่แล้ว ไม่ซ้ำ
+                <a
+                  href={GEM_QUIZ_PATH}
+                  className="-mt-2 inline-flex min-h-11 w-fit items-center rounded-full px-2 text-sm font-medium text-[var(--gq-burgundy)] underline underline-offset-4 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--gq-burgundy)]"
+                >
+                  {SHOWCASE_COPY.retakeQuiz}
+                </a>
+              )}
               <GemSetPicker design={design} sets={sets} selectedIndex={recIndex} onSelect={setRecIndex} badgeKind={badgeKind} basisNote={basisNote} />
             </>
           ) : (
-            <OwnGemPicker
+            <>
+              {/* หัวข้อกลุ่มของโหมดเลือกเอง — ไม่แสดงบนจอ (ไม่เพิ่มหัวข้อใหม่ในดีไซน์) เป็นเป้าของปุ่ม "แก้" (P1d) + ช่วย screen reader */}
+              <h2 data-jump="gems" tabIndex={-1} className="sr-only">
+                {SHOWCASE_COPY.pickerHeading}
+              </h2>
+              <OwnGemPicker
               design={design}
               own={own}
               onPickTop={pickTop}
@@ -292,7 +326,8 @@ export function RingShowcaseClient({ params }: { params: ShowcaseParams }) {
                     }
                   : undefined
               }
-            />
+              />
+            </>
           )}
         </div>
 
@@ -305,7 +340,13 @@ export function RingShowcaseClient({ params }: { params: ShowcaseParams }) {
         </div>
 
         <div className="flex min-w-0 flex-col gap-4 lg:col-start-2 lg:row-start-4">
-          <OrderSummary designId={designId} choice={choice} size={effectiveSize} />
+          <OrderSummary
+            designId={designId}
+            choice={choice}
+            size={effectiveSize}
+            onEdit={jumpTo}
+            saveImage={stageStatus === "unsupported" ? undefined : { ready: stageStatus === "ready" && captureHandle !== null, capture: captureHandle?.fn ?? null, designFailed: stageStatus === "designFailed" }}
+          />
           <div className="border-t border-[var(--gq-divider)] pt-4">
             <p className="text-xs leading-[1.65] text-[var(--gq-text-faint)]">
               <strong className="font-semibold">ข้อควรทราบ:</strong> {GEM_QUIZ_DISCLAIMER}

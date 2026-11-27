@@ -28,7 +28,7 @@ export function DesignPicker({ value, onChange }: { value: ShowcaseDesignId; onC
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-baseline justify-between gap-3">
-        <h2 id={headingId} className="font-quiz-serif text-xl font-semibold text-[var(--gq-burgundy-dark)]">
+        <h2 id={headingId} data-jump="design" tabIndex={-1} className="font-quiz-serif text-xl font-semibold text-[var(--gq-burgundy-dark)] focus:outline-none">
           {SHOWCASE_COPY.designHeading}
         </h2>
         <span className="text-xs text-[var(--gq-text-muted)] lg:hidden">{SHOWCASE_COPY.designHint(DESIGNS.length)}</span>
