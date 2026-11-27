@@ -46,7 +46,7 @@
 | ไฟล์ | สถานะ |
 |---|---|
 | `clip-script-v2-silver-bar.md` · `clip-script-v9-wholesale.md` · `clip-scripts-v1-v6-v8.md` | ✅ พร้อมถ่าย — ยังไม่ได้ถ่าย |
-| `clip-script-v11-old-ruby.md` | 📝 ร่าง — ทับทิมพม่าเผาเก่าของอาม่า "ทำอีกดีไหม" · รอเจ้าของยืนยัน 7 ข้อ (เป้าคอมเมนต์ ฯลฯ) |
+| `clip-script-v11-old-ruby.md` | ✅ พร้อมถ่าย — ทับทิมพม่าเผาเก่าของอาม่า ล็อตสุดท้าย + ปักตะกร้า · เหลือ SKU |
 | `content-winback-set1.md` | ⚠️ สคริปต์ใช้ได้ แต่ **ต้อง re-brief audience เป็น 411 คน** ก่อนใช้ |
 | `content-calendar-sep69.md` | ⚠️ เหมือนกัน — audience เก่า ถูก `plan-sep69-revised.md` ทับส่วน win-back |
 | `broadcast-scripts-99.md` · `campaign-plan-99-winback.md` · `discount-policy-99.md` · `ops-plan-99.md` | แคมเปญ 9.9 — ใช้ตามช่วงเวลา |
